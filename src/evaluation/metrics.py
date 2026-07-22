@@ -45,17 +45,38 @@ def evaluate_top_k(
     if catalog_size < 1:
         raise ValueError("catalog_size must be positive")
 
-    user_ids = holdout["user_id"].unique()
-    recommendations = {
-        int(user_id): recommend(int(user_id), k) for user_id in user_ids
+    recommendations = _recommend_for_users(holdout, recommend, k)
+    relevant_by_user = _relevant_by_user(holdout, relevance_threshold)
+    user_metrics = _build_user_metrics(recommendations, relevant_by_user, k)
+    summary = _build_summary(holdout, recommendations, user_metrics, catalog_size, k)
+    return summary, user_metrics, recommendations
+
+
+def _recommend_for_users(
+    holdout: pd.DataFrame,
+    recommend: Callable[[int, int], list[int]],
+    k: int,
+) -> dict[int, list[int]]:
+    return {
+        int(user_id): recommend(int(user_id), k)
+        for user_id in holdout["user_id"].unique()
     }
-    relevant_by_user = (
-        holdout.loc[holdout["rating"] >= relevance_threshold]
+
+
+def _relevant_by_user(holdout: pd.DataFrame, threshold: float) -> dict[int, set[int]]:
+    return (
+        holdout.loc[holdout["rating"] >= threshold]
         .groupby("user_id")["movie_id"]
         .agg(set)
         .to_dict()
     )
 
+
+def _build_user_metrics(
+    recommendations: dict[int, list[int]],
+    relevant_by_user: dict[int, set[int]],
+    k: int,
+) -> pd.DataFrame:
     rows = []
     for user_id, relevant in relevant_by_user.items():
         recommended = recommendations[int(user_id)]
@@ -68,19 +89,29 @@ def evaluate_top_k(
             }
         )
 
-    user_metrics = pd.DataFrame(rows)
-    unique_recommended = {
-        item for items in recommendations.values() for item in items[:k]
-    }
-    summary = pd.Series(
+    return pd.DataFrame(rows)
+
+
+def _build_summary(
+    holdout: pd.DataFrame,
+    recommendations: dict[int, list[int]],
+    user_metrics: pd.DataFrame,
+    catalog_size: int,
+    k: int,
+) -> pd.Series:
+    unique_count = _unique_recommended_count(recommendations, k)
+    return pd.Series(
         {
-            "holdout_users": len(user_ids),
-            "evaluable_users": len(relevant_by_user),
+            "holdout_users": holdout["user_id"].nunique(),
+            "evaluable_users": len(user_metrics),
             f"precision@{k}": user_metrics[f"precision@{k}"].mean(),
             f"recall@{k}": user_metrics[f"recall@{k}"].mean(),
             f"hit_rate@{k}": user_metrics["hit"].mean(),
-            f"catalog_coverage@{k}": len(unique_recommended) / catalog_size,
+            f"catalog_coverage@{k}": unique_count / catalog_size,
         },
         name="value",
     )
-    return summary, user_metrics, recommendations
+
+
+def _unique_recommended_count(recommendations: dict[int, list[int]], k: int) -> int:
+    return len({item for items in recommendations.values() for item in items[:k]})
