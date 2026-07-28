@@ -7,6 +7,10 @@ from typing import Any
 
 from models.matrix_factorization import MatrixFactorizationRecommender
 from models.popularity import PopularityRecommender
+from models.sklearn_baselines import (
+    SklearnBiasRecommender,
+    SklearnMeanRecommender,
+)
 
 
 class ModelKind(StrEnum):
@@ -14,11 +18,15 @@ class ModelKind(StrEnum):
 
     POPULARITY = "popularity"
     MATRIX_FACTORIZATION = "matrix_factorization"
+    SKLEARN_MEAN = "sklearn_mean"
+    SKLEARN_BIAS = "sklearn_bias"
 
 
 _MODEL_BUILDERS: dict[ModelKind, type[Any]] = {
     ModelKind.POPULARITY: PopularityRecommender,
     ModelKind.MATRIX_FACTORIZATION: MatrixFactorizationRecommender,
+    ModelKind.SKLEARN_MEAN: SklearnMeanRecommender,
+    ModelKind.SKLEARN_BIAS: SklearnBiasRecommender,
 }
 
 
