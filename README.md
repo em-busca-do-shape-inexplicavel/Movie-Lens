@@ -18,13 +18,31 @@ O dataset possui mais de 100 mil interações usuário-item e atende ao mínimo 
 - Validação e EDA orientada a recomendação.
 - Split temporal por usuário sem vazamento.
 - Baseline de popularidade.
+- Baselines Scikit-Learn de média global e vieses aditivos.
 - Fatoração de matriz com NumPy.
-- Precision@K, Recall@K, Hit Rate@K, Coverage@K e RMSE.
+- Precision@K, Recall@K, NDCG@K, Hit Rate@K, Coverage@K, RMSE e MAE.
 - Factory para modelos e Strategy para preprocessamento.
 - Testes, Ruff, pre-commit e dependências gerenciadas com uv.
 
-O baseline Scikit-Learn, o modelo PyTorch e a infraestrutura DVC/MLflow/Docker
-serão adicionados nas próximas etapas.
+O modelo PyTorch e a infraestrutura DVC/MLflow/Docker serão adicionados nas
+próximas etapas.
+
+## Resultado do baseline Scikit-Learn
+
+O notebook `05_sklearn_baselines.ipynb` compara média global e vieses aditivos
+com três níveis de regularização. A configuração foi escolhida somente na
+validação temporal; depois, o modelo foi retreinado com treino e validação e
+avaliado uma única vez no teste.
+
+| Etapa | Modelo | RMSE | MAE | NDCG@10 | Recall@10 |
+|---|---|---:|---:|---:|---:|
+| Validação | Vieses, `alpha=0.0001` | 0.9489 | 0.7595 | 0.0363 | 0.0720 |
+| Teste | Vieses, `alpha=0.0001` | 1.0176 | 0.8158 | 0.0311 | 0.0606 |
+
+Esse baseline aprende a tendência de nota de cada usuário e filme, mas não uma
+afinidade específica entre ambos. Ele funciona como referência intermediária
+entre popularidade/média global e modelos personalizados, como fatoração de
+matriz e embeddings.
 
 ## Estrutura
 
@@ -90,6 +108,7 @@ Ordem recomendada:
 2. `02_eda_recommendation.ipynb`
 3. `03_baseline.ipynb`
 4. `04_matrix_factorization.ipynb`
+5. `05_sklearn_baselines.ipynb`
 
 ## Convenção de branches e commits
 
