@@ -10,9 +10,14 @@ import pandas as pd
 
 def rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Return root mean squared error."""
-    if len(y_true) == 0 or len(y_true) != len(y_pred):
-        raise ValueError("arrays must have equal, non-zero length")
+    _validate_metric_arrays(y_true, y_pred)
     return float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
+
+
+def mae(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    """Return mean absolute error."""
+    _validate_metric_arrays(y_true, y_pred)
+    return float(np.mean(np.abs(y_true - y_pred)))
 
 
 def precision_at_k(recommended: list[int], relevant: set[int], k: int) -> float:
@@ -31,6 +36,18 @@ def recall_at_k(recommended: list[int], relevant: set[int], k: int) -> float:
         return 0.0
     hits = len(set(recommended[:k]) & relevant)
     return hits / len(relevant)
+
+
+def ndcg_at_k(recommended: list[int], relevant: set[int], k: int) -> float:
+    """Return binary normalized discounted cumulative gain at K."""
+    if k < 1:
+        raise ValueError("k must be positive")
+    if not relevant:
+        return 0.0
+    dcg = _discounted_gain(recommended, relevant, k)
+    ideal_hits = min(len(relevant), k)
+    ideal_dcg = sum(1.0 / np.log2(rank + 1) for rank in range(1, ideal_hits + 1))
+    return float(dcg / ideal_dcg)
 
 
 def evaluate_top_k(
@@ -85,6 +102,7 @@ def _build_user_metrics(
                 "user_id": int(user_id),
                 f"precision@{k}": precision_at_k(recommended, relevant, k),
                 f"recall@{k}": recall_at_k(recommended, relevant, k),
+                f"ndcg@{k}": ndcg_at_k(recommended, relevant, k),
                 "hit": bool(set(recommended[:k]) & relevant),
             }
         )
@@ -106,6 +124,7 @@ def _build_summary(
             "evaluable_users": len(user_metrics),
             f"precision@{k}": user_metrics[f"precision@{k}"].mean(),
             f"recall@{k}": user_metrics[f"recall@{k}"].mean(),
+            f"ndcg@{k}": user_metrics[f"ndcg@{k}"].mean(),
             f"hit_rate@{k}": user_metrics["hit"].mean(),
             f"catalog_coverage@{k}": unique_count / catalog_size,
         },
@@ -115,3 +134,18 @@ def _build_summary(
 
 def _unique_recommended_count(recommendations: dict[int, list[int]], k: int) -> int:
     return len({item for items in recommendations.values() for item in items[:k]})
+
+
+def _discounted_gain(recommended: list[int], relevant: set[int], k: int) -> float:
+    return float(
+        sum(
+            1.0 / np.log2(rank + 1)
+            for rank, item in enumerate(recommended[:k], start=1)
+            if item in relevant
+        )
+    )
+
+
+def _validate_metric_arrays(y_true: np.ndarray, y_pred: np.ndarray) -> None:
+    if len(y_true) == 0 or len(y_true) != len(y_pred):
+        raise ValueError("arrays must have equal, non-zero length")
