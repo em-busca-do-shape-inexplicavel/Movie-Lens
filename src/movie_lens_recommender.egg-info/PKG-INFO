@@ -1,0 +1,18 @@
+Metadata-Version: 2.4
+Name: movie-lens-recommender
+Version: 0.1.0
+Summary: Reproducible MovieLens recommendation system for FIAP Tech Challenge 02
+Requires-Python: <3.13,>=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: dvc>=3.55
+Requires-Dist: matplotlib>=3.9
+Requires-Dist: mlflow>=2.18
+Requires-Dist: numpy>=2.0
+Requires-Dist: pandas>=2.2
+Requires-Dist: pyarrow>=18.0
+Requires-Dist: pydantic-settings>=2.6
+Requires-Dist: pyyaml>=6.0
+Requires-Dist: scikit-learn>=1.5
+Requires-Dist: torch>=2.4
+
+# Movie-Lens
