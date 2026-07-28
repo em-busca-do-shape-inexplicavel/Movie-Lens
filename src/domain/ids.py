@@ -1,7 +1,7 @@
-
 from __future__ import annotations
 
 from dataclasses import dataclass
+
 
 @dataclass(frozen=True, slots=True)
 class UserId:
@@ -11,6 +11,7 @@ class UserId:
         if self.value < 1:
             msg = "user id must be positive"
             raise ValueError(msg)
+
 
 @dataclass(frozen=True, slots=True)
 class MovieId:

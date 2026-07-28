@@ -64,12 +64,8 @@ class MatrixFactorizationRecommenderTest(unittest.TestCase):
         first = MatrixFactorizationRecommender(**params).fit(interactions)
         second = MatrixFactorizationRecommender(**params).fit(interactions)
 
-        first_predictions = first.predict_pairs(
-            interactions[["user_id", "movie_id"]]
-        )
-        second_predictions = second.predict_pairs(
-            interactions[["user_id", "movie_id"]]
-        )
+        first_predictions = first.predict_pairs(interactions[["user_id", "movie_id"]])
+        second_predictions = second.predict_pairs(interactions[["user_id", "movie_id"]])
 
         np.testing.assert_allclose(first_predictions, second_predictions)
 
