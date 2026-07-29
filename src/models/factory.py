@@ -7,6 +7,7 @@ from typing import Any
 
 from models.matrix_factorization import MatrixFactorizationRecommender
 from models.popularity import PopularityRecommender
+from models.pytorch_recommender import PyTorchRecommender
 from models.sklearn_baselines import (
     SklearnBiasRecommender,
     SklearnMeanRecommender,
@@ -20,6 +21,7 @@ class ModelKind(StrEnum):
     MATRIX_FACTORIZATION = "matrix_factorization"
     SKLEARN_MEAN = "sklearn_mean"
     SKLEARN_BIAS = "sklearn_bias"
+    PYTORCH = "pytorch"
 
 
 _MODEL_BUILDERS: dict[ModelKind, type[Any]] = {
@@ -27,6 +29,7 @@ _MODEL_BUILDERS: dict[ModelKind, type[Any]] = {
     ModelKind.MATRIX_FACTORIZATION: MatrixFactorizationRecommender,
     ModelKind.SKLEARN_MEAN: SklearnMeanRecommender,
     ModelKind.SKLEARN_BIAS: SklearnBiasRecommender,
+    ModelKind.PYTORCH: PyTorchRecommender,
 }
 
 

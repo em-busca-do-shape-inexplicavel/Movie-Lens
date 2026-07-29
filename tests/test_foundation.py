@@ -13,6 +13,7 @@ from data.preprocessors.implicit import ImplicitFeedbackPreprocessor
 from models.factory import create_model
 from models.matrix_factorization import MatrixFactorizationRecommender
 from models.popularity import PopularityRecommender
+from models.pytorch_recommender import PyTorchRecommender
 from models.sklearn_baselines import (
     SklearnBiasRecommender,
     SklearnMeanRecommender,
@@ -27,6 +28,7 @@ def test_model_factory_creates_registered_models() -> None:
     )
     assert isinstance(create_model("sklearn_mean"), SklearnMeanRecommender)
     assert isinstance(create_model("sklearn_bias"), SklearnBiasRecommender)
+    assert isinstance(create_model("pytorch"), PyTorchRecommender)
 
 
 def test_model_factory_rejects_unknown_model() -> None:
