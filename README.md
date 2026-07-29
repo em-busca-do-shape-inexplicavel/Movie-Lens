@@ -20,12 +20,12 @@ O dataset possui mais de 100 mil interações usuário-item e atende ao mínimo 
 - Baseline de popularidade.
 - Baselines Scikit-Learn de média global e vieses aditivos.
 - Fatoração de matriz com NumPy.
+- Recomendador neural híbrido com embeddings PyTorch.
 - Precision@K, Recall@K, NDCG@K, Hit Rate@K, Coverage@K, RMSE e MAE.
 - Factory para modelos e Strategy para preprocessamento.
 - Testes, Ruff, pre-commit e dependências gerenciadas com uv.
 
-O modelo PyTorch e a infraestrutura DVC/MLflow/Docker serão adicionados nas
-próximas etapas.
+A infraestrutura DVC/MLflow/Docker será adicionada nas próximas etapas.
 
 ## Resultado do baseline Scikit-Learn
 
@@ -43,6 +43,23 @@ Esse baseline aprende a tendência de nota de cada usuário e filme, mas não um
 afinidade específica entre ambos. Ele funciona como referência intermediária
 entre popularidade/média global e modelos personalizados, como fatoração de
 matriz e embeddings.
+
+## Resultado do recomendador PyTorch
+
+O notebook `06_pytorch_recommender.ipynb` combina MSE de ratings com uma perda
+pairwise baseada em feedback positivo e amostragem negativa. Na validação,
+foram comparados pesos de ranking de 0,2, 1,0 e 2,0. O peso 2,0 venceu entre as
+configurações neurais pelo NDCG@10.
+
+| Etapa | Modelo | RMSE | MAE | NDCG@10 | Recall@10 |
+|---|---|---:|---:|---:|---:|
+| Validação | PyTorch, `ranking_weight=2.0` | 0.9784 | 0.7533 | 0.0331 | 0.0692 |
+| Teste | PyTorch, `ranking_weight=2.0` | 1.0505 | 0.8051 | 0.0274 | 0.0468 |
+
+Na mesma validação, o Scikit-Learn alcançou NDCG@10 de 0,0363. Portanto, a rede
+neural ainda não vence o baseline aditivo em ranking, embora aprenda afinidades
+usuário-filme e produza listas personalizadas. O resultado é mantido sem
+maquiagem: modelos mais complexos precisam justificar seu custo com métricas.
 
 ## Estrutura
 
@@ -109,6 +126,7 @@ Ordem recomendada:
 3. `03_baseline.ipynb`
 4. `04_matrix_factorization.ipynb`
 5. `05_sklearn_baselines.ipynb`
+6. `06_pytorch_recommender.ipynb`
 
 ## Convenção de branches e commits
 
