@@ -13,6 +13,10 @@ from data.preprocessors.implicit import ImplicitFeedbackPreprocessor
 from models.factory import create_model
 from models.matrix_factorization import MatrixFactorizationRecommender
 from models.popularity import PopularityRecommender
+from models.sklearn_baselines import (
+    SklearnBiasRecommender,
+    SklearnMeanRecommender,
+)
 from training.seeds import set_global_seed
 
 
@@ -21,6 +25,8 @@ def test_model_factory_creates_registered_models() -> None:
     assert isinstance(
         create_model("matrix_factorization"), MatrixFactorizationRecommender
     )
+    assert isinstance(create_model("sklearn_mean"), SklearnMeanRecommender)
+    assert isinstance(create_model("sklearn_bias"), SklearnBiasRecommender)
 
 
 def test_model_factory_rejects_unknown_model() -> None:
