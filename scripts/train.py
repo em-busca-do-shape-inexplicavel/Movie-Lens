@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from configs.settings import load_settings
 from training.configuration import load_training_config
 from training.pipeline import run_training_pipeline
+from tracking.mlflow_tracker import track_training_run
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -42,8 +43,22 @@ def main() -> int:
         resolve_project_path(arguments.output_dir),
         config,
     )
+    tracking = track_training_run(
+        config=config,
+        result=result,
+        params_path=resolve_project_path(arguments.params),
+        tracking_uri=settings.mlflow_tracking_uri,
+        experiment_name=settings.mlflow_experiment_name,
+        model_name=settings.mlflow_model_name,
+        model_stage=settings.mlflow_model_stage,
+        model_alias=settings.mlflow_model_alias,
+    )
     print(json.dumps(result.metrics, indent=2, ensure_ascii=False))
     print(f"Model saved to: {result.artifacts.model}")
+    print(f"MLflow run: {tracking.run_id}")
+    print(
+        f"Registered model: {tracking.model_name} v{tracking.registered_model_version}"
+    )
     return 0
 
 

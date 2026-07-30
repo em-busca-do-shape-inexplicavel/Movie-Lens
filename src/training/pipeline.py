@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -47,6 +48,7 @@ def run_training_pipeline(
     config: TrainingPipelineConfig,
 ) -> TrainingPipelineResult:
     """Select the epoch, train the final model, and persist results."""
+    started_at = time.perf_counter()
     ratings = load_ratings(raw_data_dir)
     train, validation, test = temporal_leave_two_out(ratings)
     selection_history = _select_best_epoch(train, validation, config.model)
@@ -54,6 +56,7 @@ def run_training_pipeline(
     final_model = _fit_final_model(train, validation, final_config)
     metrics = _evaluate_final_model(final_model, test, config.top_k)
     metrics.update(_pipeline_metadata(train, validation, test, selection_history))
+    metrics["training_seconds"] = round(time.perf_counter() - started_at, 4)
     artifacts = _save_artifacts(
         output_dir, final_model, metrics, final_config, selection_history
     )
@@ -124,6 +127,7 @@ def _pipeline_metadata(
 ) -> dict[str, MetricValue]:
     best_validation = history.validation_rmse[history.best_epoch - 1]
     return {
+        "best_epoch": history.best_epoch,
         "selected_epochs": history.best_epoch,
         "selection_epochs_ran": len(history.train_rmse),
         "stopped_early": history.stopped_early,

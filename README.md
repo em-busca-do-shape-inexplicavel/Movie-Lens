@@ -21,12 +21,12 @@ O dataset possui mais de 100 mil interações usuário-item e atende ao mínimo 
 - Baselines Scikit-Learn de média global e vieses aditivos.
 - Fatoração de matriz com NumPy.
 - Recomendador neural híbrido com embeddings PyTorch.
-- Pipeline executável com early stopping e checkpoints reutilizáveis.
+- Pipeline executável com early stopping, checkpoints reutilizáveis e tracking com MLflow.
 - Precision@K, Recall@K, NDCG@K, Hit Rate@K, Coverage@K, RMSE e MAE.
 - Factory para modelos e Strategy para preprocessamento.
 - Testes, Ruff, pre-commit e dependências gerenciadas com uv.
 
-A infraestrutura DVC/MLflow/Docker será adicionada nas próximas etapas.
+MLflow é usado para tracking e registry local. DVC e Docker continuam fora do escopo.
 
 ## Resultado do baseline Scikit-Learn
 
@@ -73,6 +73,7 @@ src/data/      loaders, splits e preprocessadores
 src/models/    recomendadores e Factory
 src/evaluation métricas de regressão e ranking
 src/training/  utilidades de treinamento e seeds
+src/tracking/  tracking e registro no MLflow
 tests/         testes automatizados
 ```
 
@@ -111,7 +112,8 @@ O comando realiza estas etapas:
 2. treina com validação e seleciona a melhor época por early stopping;
 3. retreina do zero com treino e validação pelo número de épocas escolhido;
 4. avalia uma única vez no teste;
-5. salva modelo, métricas, configuração e histórico de seleção.
+5. salva modelo, métricas, configuração e histórico de seleção;
+6. registra a run e promove a versão no Model Registry.
 
 Artefatos produzidos:
 
@@ -120,11 +122,41 @@ artifacts/model.pt               rede e mapas de IDs para inferência
 artifacts/metrics.json           métricas finais e tamanhos dos splits
 artifacts/config.json            configuração efetivamente treinada
 artifacts/selection_history.json curvas e decisão do early stopping
+artifacts/params.yaml            parâmetros usados na execução
 ```
 
 Com os parâmetros atuais, o early stopping executou 6 épocas, selecionou a
 época 3 e obteve RMSE de teste 1.0145 e NDCG@10 de 0.0242. `artifacts/` não é
-versionado diretamente pelo Git; ele será conectado ao DVC na próxima etapa.
+versionado diretamente pelo Git; ele fica ao lado dos artefatos do MLflow.
+
+## MLflow local
+
+Inicie o servidor com:
+
+```bash
+mlflow server \
+	--backend-store-uri sqlite:///mlflow.db \
+	--default-artifact-root ./mlartifacts \
+	--host 0.0.0.0 \
+	--port 5000
+```
+
+Depois execute o treino normal. O pipeline registra parâmetros, métricas,
+artefatos e a versão promovida do modelo `movie-lens-pytorch-recommender`.
+
+Para carregar o modelo publicado:
+
+```python
+import mlflow.pyfunc
+
+model = mlflow.pyfunc.load_model(
+		"models:/movie-lens-pytorch-recommender/Production"
+)
+predictions = model.predict(...)
+```
+
+Se a instalação do MLflow suportar aliases, o mesmo modelo também pode ser
+carregado por `models:/movie-lens-pytorch-recommender@production`.
 
 ## Qualidade e testes
 
@@ -157,6 +189,9 @@ Ordem recomendada:
 4. `04_matrix_factorization.ipynb`
 5. `05_sklearn_baselines.ipynb`
 6. `06_pytorch_recommender.ipynb`
+
+O script `scripts/register_model.py` registra uma run existente no Registry se
+você quiser repetir a promoção fora do fluxo principal de treino.
 
 ## Convenção de branches e commits
 
