@@ -21,6 +21,7 @@ O dataset possui mais de 100 mil interações usuário-item e atende ao mínimo 
 - Baselines Scikit-Learn de média global e vieses aditivos.
 - Fatoração de matriz com NumPy.
 - Recomendador neural híbrido com embeddings PyTorch.
+- Pipeline executável com early stopping e checkpoints reutilizáveis.
 - Precision@K, Recall@K, NDCG@K, Hit Rate@K, Coverage@K, RMSE e MAE.
 - Factory para modelos e Strategy para preprocessamento.
 - Testes, Ruff, pre-commit e dependências gerenciadas com uv.
@@ -95,6 +96,35 @@ Valide dependências e dados:
 ```bash
 python scripts/validate_env.py
 ```
+
+## Pipeline de treinamento
+
+Os hiperparâmetros ficam em `params.yaml`. Para executar o fluxo completo:
+
+```bash
+python scripts/train.py --params params.yaml --output-dir artifacts
+```
+
+O comando realiza estas etapas:
+
+1. carrega os ratings e aplica o split temporal;
+2. treina com validação e seleciona a melhor época por early stopping;
+3. retreina do zero com treino e validação pelo número de épocas escolhido;
+4. avalia uma única vez no teste;
+5. salva modelo, métricas, configuração e histórico de seleção.
+
+Artefatos produzidos:
+
+```text
+artifacts/model.pt               rede e mapas de IDs para inferência
+artifacts/metrics.json           métricas finais e tamanhos dos splits
+artifacts/config.json            configuração efetivamente treinada
+artifacts/selection_history.json curvas e decisão do early stopping
+```
+
+Com os parâmetros atuais, o early stopping executou 6 épocas, selecionou a
+época 3 e obteve RMSE de teste 1.0145 e NDCG@10 de 0.0242. `artifacts/` não é
+versionado diretamente pelo Git; ele será conectado ao DVC na próxima etapa.
 
 ## Qualidade e testes
 
