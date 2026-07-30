@@ -1,4 +1,5 @@
 data/processed/
+artifacts/
 .venv/
 .env
 .coverage

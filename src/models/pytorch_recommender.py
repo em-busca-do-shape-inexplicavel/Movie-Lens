@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, replace
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -18,9 +20,12 @@ RATING_MAX = 5.0
 
 @dataclass(frozen=True, slots=True)
 class NeuralTrainingHistory:
-    """Training RMSE measured after each epoch."""
+    """Training and validation measurements across epochs."""
 
     train_rmse: tuple[float, ...]
+    validation_rmse: tuple[float, ...]
+    best_epoch: int
+    stopped_early: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,8 +40,18 @@ class NeuralRecommenderConfig:
     relevance_threshold: float = 4.0
     batch_size: int = 1024
     epochs: int = 10
+    early_stopping_patience: int = 3
+    early_stopping_min_delta: float = 0.001
     random_state: int = 42
     device: str = "cpu"
+
+
+@dataclass(slots=True)
+class _EarlyStoppingState:
+    best_rmse: float = float("inf")
+    best_epoch: int = 0
+    stale_epochs: int = 0
+    best_weights: dict[str, torch.Tensor] | None = None
 
 
 class NeuralRatingNetwork(nn.Module):
@@ -85,9 +100,13 @@ class PyTorchRecommender:
         self.network: NeuralRatingNetwork | None = None
         self.history: NeuralTrainingHistory | None = None
 
-    def fit(self, interactions: pd.DataFrame) -> PyTorchRecommender:
-        """Fit embeddings and MLP using explicit ratings."""
+    def fit(
+        self, interactions: pd.DataFrame, validation: pd.DataFrame | None = None
+    ) -> PyTorchRecommender:
+        """Fit the network and optionally stop using validation RMSE."""
         _validate_interactions(interactions)
+        if validation is not None:
+            _validate_interactions(validation)
         set_global_seed(self.config.random_state)
         dataset = self._prepare_fit(interactions)
         self._known_matrix = self._build_known_matrix(dataset)
@@ -95,8 +114,7 @@ class PyTorchRecommender:
         self.network = NeuralRatingNetwork(
             len(self._user_to_idx), len(self._movie_to_idx), self.config
         ).to(self._device)
-        losses = self._train(dataset)
-        self.history = NeuralTrainingHistory(train_rmse=losses)
+        self.history = self._train(dataset, validation)
         return self
 
     def _prepare_fit(self, interactions: pd.DataFrame) -> TensorDataset:
@@ -109,7 +127,9 @@ class PyTorchRecommender:
         self._global_mean = float(interactions["rating"].mean())
         return _build_dataset(interactions, self._user_to_idx, self._movie_to_idx)
 
-    def _train(self, dataset: TensorDataset) -> tuple[float, ...]:
+    def _train(
+        self, dataset: TensorDataset, validation: pd.DataFrame | None
+    ) -> NeuralTrainingHistory:
         assert self.network is not None
         loader = self._build_loader(dataset)
         optimizer = torch.optim.Adam(
@@ -117,10 +137,68 @@ class PyTorchRecommender:
             lr=self.config.learning_rate,
             weight_decay=self.config.weight_decay,
         )
-        losses = [
-            self._train_epoch(loader, optimizer) for _ in range(self.config.epochs)
-        ]
-        return tuple(losses)
+        return self._run_training_loop(loader, optimizer, validation)
+
+    def _run_training_loop(
+        self,
+        loader: DataLoader,
+        optimizer: torch.optim.Optimizer,
+        validation: pd.DataFrame | None,
+    ) -> NeuralTrainingHistory:
+        state = _EarlyStoppingState()
+        train_losses: list[float] = []
+        validation_losses: list[float] = []
+        for epoch in range(1, self.config.epochs + 1):
+            train_losses.append(self._train_epoch(loader, optimizer))
+            if validation is None:
+                continue
+            validation_losses.append(self._validation_rmse(validation))
+            if self._update_early_stopping(state, validation_losses[-1], epoch):
+                break
+        self._restore_best_weights(state)
+        return self._build_history(
+            state, train_losses, validation_losses, validation is not None
+        )
+
+    def _build_history(
+        self,
+        state: _EarlyStoppingState,
+        train_losses: list[float],
+        validation_losses: list[float],
+        used_validation: bool,
+    ) -> NeuralTrainingHistory:
+        best_epoch = state.best_epoch if used_validation else len(train_losses)
+        return NeuralTrainingHistory(
+            tuple(train_losses),
+            tuple(validation_losses),
+            best_epoch,
+            len(train_losses) < self.config.epochs,
+        )
+
+    def _update_early_stopping(
+        self, state: _EarlyStoppingState, validation_rmse: float, epoch: int
+    ) -> bool:
+        improved = validation_rmse < (
+            state.best_rmse - self.config.early_stopping_min_delta
+        )
+        if improved:
+            state.best_rmse = validation_rmse
+            state.best_epoch = epoch
+            state.stale_epochs = 0
+            state.best_weights = self._cpu_state_dict()
+        else:
+            state.stale_epochs += 1
+        return state.stale_epochs >= self.config.early_stopping_patience
+
+    def _validation_rmse(self, validation: pd.DataFrame) -> float:
+        actual = validation["rating"].to_numpy(float)
+        predictions = self.predict_pairs(validation)
+        return float(np.sqrt(np.mean((actual - predictions) ** 2)))
+
+    def _restore_best_weights(self, state: _EarlyStoppingState) -> None:
+        if state.best_weights is not None:
+            assert self.network is not None
+            self.network.load_state_dict(state.best_weights)
 
     def _build_loader(self, dataset: TensorDataset) -> DataLoader:
         generator = torch.Generator().manual_seed(self.config.random_state)
@@ -250,6 +328,57 @@ class PyTorchRecommender:
         mask = np.array([movie_id not in seen for movie_id in self._idx_to_movie])
         return np.flatnonzero(mask)
 
+    def save(self, path: Path) -> Path:
+        """Persist the fitted network and inference metadata."""
+        self._ensure_fitted()
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(self._checkpoint(), path)
+        return path
+
+    @classmethod
+    def load(cls, path: Path, *, device: str = "cpu") -> PyTorchRecommender:
+        """Restore a fitted recommender from a checkpoint."""
+        checkpoint = torch.load(path, map_location=device, weights_only=False)
+        config_data = checkpoint["config"]
+        config_data["hidden_dims"] = tuple(config_data["hidden_dims"])
+        config = replace(NeuralRecommenderConfig(**config_data), device=device)
+        model = cls(config)
+        model._restore_checkpoint(checkpoint)
+        return model
+
+    def _checkpoint(self) -> dict[str, Any]:
+        assert self.history is not None
+        return {
+            "config": asdict(self.config),
+            "state_dict": self._cpu_state_dict(),
+            "user_to_idx": self._user_to_idx,
+            "movie_to_idx": self._movie_to_idx,
+            "idx_to_movie": self._idx_to_movie,
+            "seen_items": self._seen_items,
+            "global_mean": self._global_mean,
+            "history": asdict(self.history),
+        }
+
+    def _cpu_state_dict(self) -> dict[str, torch.Tensor]:
+        assert self.network is not None
+        return {
+            name: value.detach().cpu().clone()
+            for name, value in self.network.state_dict().items()
+        }
+
+    def _restore_checkpoint(self, checkpoint: dict[str, Any]) -> None:
+        self._user_to_idx = checkpoint["user_to_idx"]
+        self._movie_to_idx = checkpoint["movie_to_idx"]
+        self._idx_to_movie = checkpoint["idx_to_movie"]
+        self._seen_items = checkpoint["seen_items"]
+        self._global_mean = checkpoint["global_mean"]
+        self.network = NeuralRatingNetwork(
+            len(self._user_to_idx), len(self._movie_to_idx), self.config
+        ).to(self._device)
+        self.network.load_state_dict(checkpoint["state_dict"])
+        self.history = NeuralTrainingHistory(**checkpoint["history"])
+
     @property
     def catalog_size(self) -> int:
         """Return the fitted movie catalog size."""
@@ -265,6 +394,7 @@ class PyTorchRecommender:
             self.config.embedding_dim,
             self.config.batch_size,
             self.config.epochs,
+            self.config.early_stopping_patience,
         )
         if any(value < 1 for value in positive) or not self.config.hidden_dims:
             raise ValueError("dimensions, batch_size, and epochs must be positive")
@@ -274,6 +404,8 @@ class PyTorchRecommender:
             raise ValueError("invalid optimization parameters")
         if self.config.ranking_weight < 0:
             raise ValueError("ranking_weight cannot be negative")
+        if self.config.early_stopping_min_delta < 0:
+            raise ValueError("early_stopping_min_delta cannot be negative")
         if not RATING_MIN <= self.config.relevance_threshold <= RATING_MAX:
             raise ValueError("relevance_threshold must be within the rating scale")
 

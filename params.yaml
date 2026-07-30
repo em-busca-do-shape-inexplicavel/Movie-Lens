@@ -1,0 +1,16 @@
+training:
+  embedding_dim: 16
+  hidden_dims: [32]
+  learning_rate: 0.001
+  weight_decay: 0.00001
+  ranking_weight: 2.0
+  relevance_threshold: 4.0
+  batch_size: 2048
+  epochs: 30
+  early_stopping_patience: 3
+  early_stopping_min_delta: 0.001
+  random_state: 42
+  device: cpu
+
+evaluation:
+  top_k: 10

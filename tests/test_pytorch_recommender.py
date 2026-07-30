@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -44,6 +46,7 @@ def test_predicts_valid_ratings_and_filters_seen(
     assert model.catalog_size == 5
     assert model.history is not None
     assert len(model.history.train_rmse) == 4
+    assert model.history.best_epoch == 4
 
 
 def test_is_reproducible_with_fixed_seed(interactions: pd.DataFrame) -> None:
@@ -69,3 +72,34 @@ def test_requires_fit_and_valid_configuration() -> None:
         build_model().recommend(user_id=1)
     with pytest.raises(ValueError, match="positive"):
         PyTorchRecommender(NeuralRecommenderConfig(embedding_dim=0))
+
+
+def test_early_stopping_restores_best_epoch(interactions: pd.DataFrame) -> None:
+    config = NeuralRecommenderConfig(
+        embedding_dim=4,
+        hidden_dims=(8,),
+        batch_size=3,
+        epochs=8,
+        early_stopping_patience=1,
+        early_stopping_min_delta=100.0,
+    )
+
+    model = PyTorchRecommender(config).fit(interactions, interactions)
+
+    assert model.history is not None
+    assert model.history.best_epoch == 1
+    assert model.history.stopped_early
+    assert len(model.history.train_rmse) == 2
+
+
+def test_checkpoint_round_trip(interactions: pd.DataFrame, tmp_path: Path) -> None:
+    pairs = interactions[["user_id", "movie_id"]]
+    model = build_model().fit(interactions)
+    checkpoint_path = model.save(tmp_path / "model.pt")
+
+    restored = PyTorchRecommender.load(checkpoint_path)
+
+    np.testing.assert_allclose(
+        restored.predict_pairs(pairs), model.predict_pairs(pairs)
+    )
+    assert restored.recommend(user_id=1, k=2) == model.recommend(user_id=1, k=2)
