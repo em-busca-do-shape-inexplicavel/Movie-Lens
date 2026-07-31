@@ -1,6 +1,6 @@
 stages:
   validate:
-    cmd: python -c "import pathlib; pathlib.Path('artifacts').mkdir(parents=True, exist_ok=True)" && python scripts/validate_env.py > artifacts/validation_report.txt
+    cmd: python scripts/validate_env.py --report artifacts/validation_report.txt
     deps:
       - scripts/validate_env.py
       - configs/settings.py

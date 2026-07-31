@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import argparse
 import importlib.metadata
 import sys
+from contextlib import redirect_stdout
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +24,17 @@ REQUIRED_DISTRIBUTIONS = (
     "scikit-learn",
     "torch",
 )
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build the environment-validation command-line parser."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--report",
+        type=Path,
+        help="Write the validation output to this file instead of stdout.",
+    )
+    return parser
 
 
 def installed_version(distribution: str) -> str | None:
@@ -60,7 +73,7 @@ def validate_paths() -> list[Path]:
     return missing
 
 
-def main() -> int:
+def run_validation() -> int:
     """Run environment checks and return a process exit code."""
     print(f"Python               {sys.version.split()[0]}")
     print("\nDependencies")
@@ -72,6 +85,19 @@ def main() -> int:
         return 1
     print("\nEnvironment validation passed.")
     return 0
+
+
+def main() -> int:
+    """Validate the environment and optionally persist a report."""
+    arguments = build_parser().parse_args()
+    if arguments.report is None:
+        return run_validation()
+    report = (
+        arguments.report if arguments.report.is_absolute() else ROOT / arguments.report
+    )
+    report.parent.mkdir(parents=True, exist_ok=True)
+    with report.open("w", encoding="utf-8") as stream, redirect_stdout(stream):
+        return run_validation()
 
 
 if __name__ == "__main__":

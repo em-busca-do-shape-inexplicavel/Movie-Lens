@@ -21,12 +21,13 @@ O dataset possui mais de 100 mil interações usuário-item e atende ao mínimo 
 - Baselines Scikit-Learn de média global e vieses aditivos.
 - Fatoração de matriz com NumPy.
 - Recomendador neural híbrido com embeddings PyTorch.
-- Pipeline executável com early stopping, checkpoints reutilizáveis e tracking com MLflow.
+- Pipeline DVC reprodutível com early stopping, checkpoints e tracking com MLflow.
 - Precision@K, Recall@K, NDCG@K, Hit Rate@K, Coverage@K, RMSE e MAE.
 - Factory para modelos e Strategy para preprocessamento.
 - Testes, Ruff, pre-commit e dependências gerenciadas com uv.
 
-MLflow é usado para tracking e registry local. DVC e Docker continuam fora do escopo.
+MLflow é usado para tracking e registry local, enquanto o DVC versiona os dados
+e os artefatos reproduzíveis. Docker continua fora do escopo desta etapa.
 
 ## Resultado do baseline Scikit-Learn
 
@@ -66,7 +67,9 @@ maquiagem: modelos mais complexos precisam justificar seu custo com métricas.
 
 ```text
 configs/       configurações carregadas do ambiente
+.dvc/          configuração do versionamento de dados
 data/raw/      arquivos originais do MovieLens
+dvc.yaml       etapas reproduzíveis de validação e treinamento
 notebooks/     validação, EDA e experimentos
 scripts/       pontos de entrada executáveis
 src/data/      loaders, splits e preprocessadores
@@ -97,6 +100,42 @@ Valide dependências e dados:
 ```bash
 python scripts/validate_env.py
 ```
+
+## Versionamento e pipeline com DVC
+
+O arquivo `data/raw.dvc` identifica exatamente a versão dos quatro CSVs do
+MovieLens. O `dvc.yaml` define o fluxo `validate → train`, e o `dvc.lock`
+registra os hashes dos dados, código, parâmetros e artefatos utilizados.
+
+O remote padrão desta branch é `.dvc-storage/`, adequado para desenvolvimento
+local e ignorado pelo Git. Em uma equipe, substitua a URL por um armazenamento
+compartilhado antes do merge e nunca versione credenciais:
+
+```bash
+dvc remote modify localstorage URL_DO_REMOTE_COMPARTILHADO
+dvc push
+```
+
+Em uma máquina que já tenha acesso ao remote configurado, recupere os dados:
+
+```bash
+dvc pull
+```
+
+Antes da reprodução, inicie o servidor MLflow conforme a seção seguinte. Em
+outro terminal, com o ambiente virtual ativado, execute:
+
+```bash
+dvc repro
+dvc status
+dvc metrics show
+dvc dag
+```
+
+O `dvc repro` valida dados e dependências, treina o modelo, atualiza os
+artefatos, registra a execução no MLflow e só repete etapas cujas dependências
+tenham mudado. Depois de uma reprodução intencional, envie os novos objetos ao
+remote com `dvc push` e versione `dvc.lock` no Git.
 
 ## Pipeline de treinamento
 

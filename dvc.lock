@@ -1,14 +1,12 @@
 schema: '2.0'
 stages:
   validate:
-    cmd: python -c "import pathlib; 
-      pathlib.Path('artifacts').mkdir(parents=True, exist_ok=True)" && python 
-      scripts/validate_env.py > artifacts/validation_report.txt
+    cmd: python scripts/validate_env.py --report artifacts/validation_report.txt
     deps:
     - path: configs/settings.py
       hash: md5
-      md5: d6be150080028cf554ea2a2375212230
-      size: 1373
+      md5: 6c60d51f38bf131ace289adc1c204eea
+      size: 1327
     - path: data/raw
       hash: md5
       md5: ff7791951628c1dfee8c8036fa7c25ca.dir
@@ -16,24 +14,24 @@ stages:
       nfiles: 4
     - path: scripts/validate_env.py
       hash: md5
-      md5: d24d8ef88972424aa2b798a8710837ca
-      size: 2254
+      md5: 7eac0910184c3e2930002b0e8f553c13
+      size: 3048
     outs:
     - path: artifacts/validation_report.txt
       hash: md5
-      md5: 69b9d587c7f12ff2047ed8e712044f73
-      size: 460
+      md5: a67c6cb98f0c618fbf0ab446006707a0
+      size: 458
   train:
     cmd: python scripts/train.py --params params.yaml --output-dir artifacts
     deps:
     - path: artifacts/validation_report.txt
       hash: md5
-      md5: 69b9d587c7f12ff2047ed8e712044f73
-      size: 460
+      md5: a67c6cb98f0c618fbf0ab446006707a0
+      size: 458
     - path: configs
       hash: md5
-      md5: 68cb1a3a685d5dcc690a5db8d1789be2.dir
-      size: 1502
+      md5: 7259d5f6fd1009679d86718e43ca4fab.dir
+      size: 1451
       nfiles: 2
     - path: data/raw
       hash: md5
@@ -42,12 +40,12 @@ stages:
       nfiles: 4
     - path: scripts/train.py
       hash: md5
-      md5: c69a119802bc5cf00b645d5c0bd7df82
-      size: 2225
+      md5: a17260ffcedb1e9adbeb7b3279885b24
+      size: 2159
     - path: src
       hash: md5
-      md5: a989041987cc7cab1db97c9ea667404c.dir
-      size: 68097
+      md5: a9abb4aa885d751f1941efc1c380431a.dir
+      size: 66214
       nfiles: 23
     params:
       params.yaml:
@@ -70,17 +68,17 @@ stages:
     outs:
     - path: artifacts/config.json
       hash: md5
-      md5: 67da39f1fe65f36fe950b3489295953e
-      size: 326
+      md5: 35730b77a5a1eb2939f1452fd0562f47
+      size: 310
     - path: artifacts/metrics.json
       hash: md5
-      md5: a80619d2efd9dda83ffa9f22404ec23b
-      size: 563
+      md5: 9c38302064e527fd4b1a5bab1c360fc9
+      size: 546
     - path: artifacts/model.pt
       hash: md5
-      md5: 18109a86eb0620efd5374a7a64e1ed39
-      size: 1642069
+      md5: dce1d310900bb97ba776137c62e7c3da
+      size: 1642045
     - path: artifacts/selection_history.json
       hash: md5
-      md5: 52e0383cd041e7aea01c62b55e395fd9
-      size: 402
+      md5: 1805cc41de7b9df9fdf99374e7fafa39
+      size: 379
