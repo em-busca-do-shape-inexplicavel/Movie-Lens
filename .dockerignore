@@ -1,6 +1,7 @@
 .git
 .gitignore
 .venv
+.env
 __pycache__/
 *.pyc
 *.pyo
@@ -16,7 +17,10 @@ mlruns/
 mlflow.db
 artifacts/
 notebooks/
-.dvc/
-.dvcignore
-dvc.lock
+.dvc/cache/
+.dvc/tmp/
+.dvc/config.local
+.dvc-storage/
+data/raw/
+data/processed/
 tests/

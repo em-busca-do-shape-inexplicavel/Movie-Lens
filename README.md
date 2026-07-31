@@ -27,7 +27,8 @@ O dataset possui mais de 100 mil interações usuário-item e atende ao mínimo 
 - Testes, Ruff, pre-commit e dependências gerenciadas com uv.
 
 MLflow é usado para tracking e registry local, enquanto o DVC versiona os dados
-e os artefatos reproduzíveis. Docker continua fora do escopo desta etapa.
+e os artefatos reproduzíveis. O ambiente também pode ser executado com uma
+imagem Docker multi-stage e serviços Compose separados para treino e MLflow.
 
 ## Resultado do baseline Scikit-Learn
 
@@ -206,6 +207,55 @@ existente no mesmo servidor configurado no `.env`:
 ```bash
 python scripts/register_model.py --run-id RUN_ID
 ```
+
+## Execução com Docker Compose
+
+O `Dockerfile` usa um estágio `builder` para instalar exatamente as versões do
+`uv.lock` e um estágio `runtime` que recebe somente o ambiente virtual e os
+arquivos necessários para executar o projeto. O processo roda como usuário sem
+privilégios de root.
+
+Prepare as variáveis e construa as imagens:
+
+```bash
+cp .env.example .env
+docker compose build
+```
+
+O serviço `training` usa os dados existentes em `data/raw/`. Se eles ainda não
+estiverem presentes, executa `dvc pull data/raw.dvc` usando o remote configurado
+em `.dvc/config`. Para o remote local padrão, os objetos devem estar em
+`.dvc-storage/`; em equipe, configure um remote compartilhado e forneça as
+credenciais por variáveis ou secrets, sem colocá-las na imagem.
+
+Suba o MLflow e aguarde o healthcheck:
+
+```bash
+docker compose up -d --build mlflow
+docker compose ps
+```
+
+Execute o pipeline DVC em um contêiner descartável:
+
+```bash
+docker compose run --rm training
+```
+
+O treino executa `dvc repro --force`, grava os arquivos DVC em `artifacts/` e
+envia parâmetros, métricas, artefatos do MLflow e a versão registrada do modelo
+para `http://mlflow:5000` dentro da rede do Compose. A interface fica disponível
+no host em `http://localhost:5000` por padrão. Banco e artefatos do servidor são
+mantidos nos volumes nomeados `mlflow_data` e `mlflow_artifacts`.
+
+Para acompanhar os logs e encerrar os serviços:
+
+```bash
+docker compose logs -f mlflow
+docker compose down
+```
+
+Use `docker compose down --volumes` somente quando quiser apagar também o banco,
+o cache DVC do contêiner e os artefatos persistidos pelo MLflow.
 
 ## Qualidade e testes
 

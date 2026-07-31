@@ -1,22 +1,76 @@
+name: movie-lens-recommender
+
 services:
   mlflow:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: movie-lens-mlflow
-    command: >
-      mlflow server
-      --backend-store-uri sqlite:////app/mlflow/mlflow.db
-      --default-artifact-root /app/mlartifacts
-      --host 0.0.0.0
-      --port 5000
+      target: runtime
+    command:
+      - mlflow
+      - server
+      - --backend-store-uri
+      - sqlite:////app/mlflow/mlflow.db
+      - --serve-artifacts
+      - --artifacts-destination
+      - /app/mlartifacts
+      - --host
+      - 0.0.0.0
+      - --port
+      - "5000"
+      - --allowed-hosts
+      - mlflow,mlflow:5000,localhost,127.0.0.1
     ports:
-      - "5000:5000"
+      - "${MLFLOW_PORT:-5000}:5000"
     volumes:
       - mlflow_data:/app/mlflow
       - mlflow_artifacts:/app/mlartifacts
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen("http://localhost:5000/health", timeout=2)
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
     restart: unless-stopped
 
+  training:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    environment:
+      DATA_DIR: /app/data
+      RANDOM_SEED: "${RANDOM_SEED:-42}"
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_EXPERIMENT_NAME: "${MLFLOW_EXPERIMENT_NAME:-movie-lens-recommender}"
+      MLFLOW_MODEL_NAME: "${MLFLOW_MODEL_NAME:-movie-lens-pytorch-recommender}"
+      MLFLOW_MODEL_STAGE: "${MLFLOW_MODEL_STAGE:-Production}"
+      MLFLOW_MODEL_ALIAS: "${MLFLOW_MODEL_ALIAS:-production}"
+    volumes:
+      - ./data:/app/data
+      - ./artifacts:/app/artifacts
+      - "${DVC_STORAGE_DIR:-./.dvc-storage}:/app/.dvc-storage:ro"
+      - dvc_cache:/app/.dvc/cache
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        if [ ! -f data/raw/ratings.csv ]; then
+          dvc pull data/raw.dvc
+        fi
+        exec dvc repro --force
+    restart: "no"
+
 volumes:
+  dvc_cache:
   mlflow_data:
   mlflow_artifacts:
