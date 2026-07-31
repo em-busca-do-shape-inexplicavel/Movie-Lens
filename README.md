@@ -55,17 +55,16 @@ imagem Docker multi-stage e serviços Compose separados para treino e MLflow.
 Autoria identificada no histórico Git do projeto:
 
 - `KikuTiii` — Matheus Kikuti;
-- `G-santanna`;
-- `renan.casalle`;
-- `v-leonel`.
+- `G-santanna`; - Gustavo Santanna
+- `renan.casalle`; - Renan Casalle
+- `v-leonel`. - Victor Leonel
 
 ## Vídeo de apresentação
 
 O vídeo deve apresentar o projeto em até cinco minutos usando a estrutura STAR:
 situação, tarefa, ações e resultados.
 
-> **Antes da submissão:** substituir esta observação pelo link público ou não
-> listado do vídeo.
+> **Antes da submissão:** link do video
 
 ## Resultado do baseline Scikit-Learn
 
