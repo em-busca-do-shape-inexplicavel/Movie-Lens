@@ -1,4 +1,5 @@
 data/processed/
+data/features/
 artifacts/*
 !artifacts/.gitkeep
 mlruns/

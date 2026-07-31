@@ -64,6 +64,22 @@ def test_mlflow_tracking_logs_run_and_promotes_model(tmp_path: Path) -> None:
     assert len(predictions) == 1
     assert loaded.metadata.signature is not None
 
+    candidate = track_training_run(
+        config=config,
+        result=result,
+        params_path=params_path,
+        tracking_uri=tracking_uri,
+        experiment_name=experiment_name,
+        model_name=tracked.model_name,
+        publish_model=False,
+        run_name="candidate-test",
+        extra_tags={"run_kind": "candidate"},
+    )
+    assert candidate.registered_model_version is None
+    assert mlflow.get_run(candidate.run_id).data.tags["run_kind"] == "candidate"
+    versions = MlflowClient().search_model_versions(f"name='{tracked.model_name}'")
+    assert len(versions) == 1
+
     other_tracking_uri = f"sqlite:///{tmp_path / 'other.db'}"
     mlflow.set_tracking_uri(other_tracking_uri)
     registered_again = register_model_version(

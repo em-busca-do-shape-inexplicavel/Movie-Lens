@@ -48,29 +48,61 @@ def run_training_pipeline(
     config: TrainingPipelineConfig,
 ) -> TrainingPipelineResult:
     """Select the epoch, train the final model, and persist results."""
-    started_at = time.perf_counter()
     ratings = load_ratings(raw_data_dir)
     train, validation, test = temporal_leave_two_out(ratings)
-    selection_history = _select_best_epoch(train, validation, config.model)
-    final_config = replace(config.model, epochs=selection_history.best_epoch)
-    final_model = _fit_final_model(train, validation, final_config)
-    metrics = _evaluate_final_model(final_model, test, config.top_k)
-    metrics.update(_pipeline_metadata(train, validation, test, selection_history))
-    metrics["training_seconds"] = round(time.perf_counter() - started_at, 4)
-    artifacts = _save_artifacts(
-        output_dir, final_model, metrics, final_config, selection_history
-    )
-    return TrainingPipelineResult(metrics=metrics, artifacts=artifacts)
+    candidate = train_candidate(train, validation, output_dir, config)
+    history = _load_history(candidate.artifacts.selection_history)
+    fit_selected_model(train, validation, output_dir, config, history)
+    return evaluate_saved_model(test, output_dir, config.top_k)
 
 
-def _select_best_epoch(
+def train_candidate(
     train: pd.DataFrame,
     validation: pd.DataFrame,
-    config: NeuralRecommenderConfig,
-) -> NeuralTrainingHistory:
-    model = create_model("pytorch", config=config).fit(train, validation)
+    output_dir: Path,
+    config: TrainingPipelineConfig,
+) -> TrainingPipelineResult:
+    """Train one candidate and evaluate it only on validation data."""
+    started_at = time.perf_counter()
+    model = create_model("pytorch", config=config.model).fit(train, validation)
     assert model.history is not None
-    return model.history
+    metrics = _evaluate_model(model, validation, config.top_k, "validation")
+    metrics.update(_selection_metadata(train, validation, model.history))
+    metrics["training_seconds"] = round(time.perf_counter() - started_at, 4)
+    artifacts = _save_artifacts(output_dir, model, metrics, config.model, model.history)
+    return TrainingPipelineResult(metrics, artifacts)
+
+
+def fit_selected_model(
+    train: pd.DataFrame,
+    validation: pd.DataFrame,
+    output_dir: Path,
+    config: TrainingPipelineConfig,
+    history: NeuralTrainingHistory,
+) -> TrainingPipelineResult:
+    """Retrain the selected candidate on train and validation data."""
+    started_at = time.perf_counter()
+    final_config = replace(config.model, epochs=history.best_epoch)
+    model = _fit_final_model(train, validation, final_config)
+    metrics = _selection_metadata(train, validation, history)
+    metrics["training_seconds"] = round(time.perf_counter() - started_at, 4)
+    artifacts = _save_artifacts(
+        output_dir, model, metrics, final_config, history, "training_metrics.json"
+    )
+    return TrainingPipelineResult(metrics, artifacts)
+
+
+def evaluate_saved_model(
+    test: pd.DataFrame, output_dir: Path, top_k: int
+) -> TrainingPipelineResult:
+    """Evaluate the selected model once on the untouched test split."""
+    model = PyTorchRecommender.load(output_dir / "model.pt")
+    metrics = _read_json(output_dir / "training_metrics.json")
+    metrics.update(_evaluate_model(model, test, top_k, "test"))
+    metrics["test_rows"] = len(test)
+    artifacts = _existing_artifacts(output_dir)
+    _save_json(artifacts.metrics, metrics)
+    return TrainingPipelineResult(metrics, artifacts)
 
 
 def _fit_final_model(
@@ -82,17 +114,20 @@ def _fit_final_model(
     return create_model("pytorch", config=config).fit(train_validation)
 
 
-def _evaluate_final_model(
-    model: PyTorchRecommender, test: pd.DataFrame, top_k: int
+def _evaluate_model(
+    model: PyTorchRecommender,
+    holdout: pd.DataFrame,
+    top_k: int,
+    prefix: str,
 ) -> dict[str, MetricValue]:
-    predictions = model.predict_pairs(test)
-    ranking = _evaluate_ranking(model, test, top_k)
-    actual = test["rating"].to_numpy(float)
+    predictions = model.predict_pairs(holdout)
+    ranking = _evaluate_ranking(model, holdout, top_k)
+    actual = holdout["rating"].to_numpy(float)
     return {
         "model": "pytorch",
-        "test_rmse": rmse(actual, predictions),
-        "test_mae": mae(actual, predictions),
-        **_ranking_metric_values(ranking, top_k),
+        f"{prefix}_rmse": rmse(actual, predictions),
+        f"{prefix}_mae": mae(actual, predictions),
+        **_ranking_metric_values(ranking, top_k, prefix),
     }
 
 
@@ -109,20 +144,21 @@ def _evaluate_ranking(
     return ranking
 
 
-def _ranking_metric_values(ranking: pd.Series, top_k: int) -> dict[str, MetricValue]:
+def _ranking_metric_values(
+    ranking: pd.Series, top_k: int, prefix: str
+) -> dict[str, MetricValue]:
     return {
-        f"test_precision@{top_k}": float(ranking[f"precision@{top_k}"]),
-        f"test_recall@{top_k}": float(ranking[f"recall@{top_k}"]),
-        f"test_ndcg@{top_k}": float(ranking[f"ndcg@{top_k}"]),
-        f"test_hit_rate@{top_k}": float(ranking[f"hit_rate@{top_k}"]),
-        f"test_coverage@{top_k}": float(ranking[f"catalog_coverage@{top_k}"]),
+        f"{prefix}_precision@{top_k}": float(ranking[f"precision@{top_k}"]),
+        f"{prefix}_recall@{top_k}": float(ranking[f"recall@{top_k}"]),
+        f"{prefix}_ndcg@{top_k}": float(ranking[f"ndcg@{top_k}"]),
+        f"{prefix}_hit_rate@{top_k}": float(ranking[f"hit_rate@{top_k}"]),
+        f"{prefix}_coverage@{top_k}": float(ranking[f"catalog_coverage@{top_k}"]),
     }
 
 
-def _pipeline_metadata(
+def _selection_metadata(
     train: pd.DataFrame,
     validation: pd.DataFrame,
-    test: pd.DataFrame,
     history: NeuralTrainingHistory,
 ) -> dict[str, MetricValue]:
     best_validation = history.validation_rmse[history.best_epoch - 1]
@@ -134,7 +170,6 @@ def _pipeline_metadata(
         "best_validation_rmse": best_validation,
         "train_rows": len(train),
         "validation_rows": len(validation),
-        "test_rows": len(test),
     }
 
 
@@ -144,11 +179,12 @@ def _save_artifacts(
     metrics: dict[str, MetricValue],
     config: NeuralRecommenderConfig,
     history: NeuralTrainingHistory,
+    metrics_filename: str = "metrics.json",
 ) -> TrainingArtifacts:
     output_dir.mkdir(parents=True, exist_ok=True)
     artifacts = TrainingArtifacts(
         model=output_dir / "model.pt",
-        metrics=output_dir / "metrics.json",
+        metrics=output_dir / metrics_filename,
         config=output_dir / "config.json",
         selection_history=output_dir / "selection_history.json",
     )
@@ -162,4 +198,24 @@ def _save_artifacts(
 def _save_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _load_history(path: Path) -> NeuralTrainingHistory:
+    payload = _read_json(path)
+    payload["train_rmse"] = tuple(payload["train_rmse"])
+    payload["validation_rmse"] = tuple(payload["validation_rmse"])
+    return NeuralTrainingHistory(**payload)
+
+
+def _existing_artifacts(output_dir: Path) -> TrainingArtifacts:
+    return TrainingArtifacts(
+        model=output_dir / "model.pt",
+        metrics=output_dir / "metrics.json",
+        config=output_dir / "config.json",
+        selection_history=output_dir / "selection_history.json",
     )
