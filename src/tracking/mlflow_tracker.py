@@ -37,6 +37,21 @@ class MlflowTrackingResult:
     registered_model_version: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class MlflowTrackingOptions:
+    """Configuration used to log and optionally publish one training run."""
+
+    tracking_uri: str
+    experiment_name: str
+    model_name: str = DEFAULT_MODEL_NAME
+    model_stage: str = DEFAULT_MODEL_STAGE
+    model_alias: str = DEFAULT_MODEL_ALIAS
+    description: str = DEFAULT_MODEL_DESCRIPTION
+    publish_model: bool = True
+    run_name: str | None = None
+    extra_tags: Mapping[str, str] | None = None
+
+
 class _MovieLensPyfuncModel(mlflow.pyfunc.PythonModel):
     """Load a fitted recommender checkpoint inside the registry artifact."""
 
@@ -59,35 +74,33 @@ def track_training_run(
     config: TrainingPipelineConfig,
     result: TrainingPipelineResult,
     params_path: Path,
-    tracking_uri: str,
-    experiment_name: str,
-    model_name: str = DEFAULT_MODEL_NAME,
-    model_stage: str = DEFAULT_MODEL_STAGE,
-    model_alias: str = DEFAULT_MODEL_ALIAS,
-    description: str = DEFAULT_MODEL_DESCRIPTION,
-    publish_model: bool = True,
-    run_name: str | None = None,
-    extra_tags: Mapping[str, str] | None = None,
+    options: MlflowTrackingOptions,
 ) -> MlflowTrackingResult:
     """Log one run and optionally publish its model in the Registry."""
-    mlflow.set_tracking_uri(tracking_uri)
-    mlflow.set_experiment(experiment_name)
-    tags = _build_tags(result.metrics, extra_tags)
-    run_id = _log_run(config, result, params_path, run_name, model_name, tags)
-    if not publish_model:
-        return MlflowTrackingResult(run_id=run_id, model_name=model_name)
+    mlflow.set_tracking_uri(options.tracking_uri)
+    mlflow.set_experiment(options.experiment_name)
+    tags = _build_tags(result.metrics, options.extra_tags)
+    run_id = _log_run(config, result, params_path, options, tags)
+    return _build_tracking_result(run_id, tags, options)
+
+
+def _build_tracking_result(
+    run_id: str, tags: Mapping[str, str], options: MlflowTrackingOptions
+) -> MlflowTrackingResult:
+    if not options.publish_model:
+        return MlflowTrackingResult(run_id=run_id, model_name=options.model_name)
     publication = register_model_version(
         run_id=run_id,
-        model_name=model_name,
-        description=description,
-        stage=model_stage,
-        alias=model_alias,
+        model_name=options.model_name,
+        description=options.description,
+        stage=options.model_stage,
+        alias=options.model_alias,
         tags=tags,
-        tracking_uri=tracking_uri,
+        tracking_uri=options.tracking_uri,
     )
     return MlflowTrackingResult(
         run_id=run_id,
-        model_name=model_name,
+        model_name=options.model_name,
         registered_model_version=str(publication.version),
     )
 
@@ -96,11 +109,11 @@ def _log_run(
     config: TrainingPipelineConfig,
     result: TrainingPipelineResult,
     params_path: Path,
-    run_name: str | None,
-    model_name: str,
+    options: MlflowTrackingOptions,
     tags: Mapping[str, str],
 ) -> str:
-    with mlflow.start_run(run_name=run_name or f"{model_name}-training") as run:
+    run_name = options.run_name or f"{options.model_name}-training"
+    with mlflow.start_run(run_name=run_name) as run:
         _log_parameters(config)
         _log_metrics(result.metrics)
         _log_run_artifacts(result, params_path)

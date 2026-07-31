@@ -18,7 +18,11 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from configs.settings import Settings, load_settings
 from models.pytorch_recommender import PyTorchRecommender
-from tracking.mlflow_tracker import MlflowTrackingResult, track_training_run
+from tracking.mlflow_tracker import (
+    MlflowTrackingOptions,
+    MlflowTrackingResult,
+    track_training_run,
+)
 from training.configuration import TrainingPipelineConfig, load_training_config
 from training.pipeline import TrainingPipelineResult, evaluate_saved_model
 
@@ -60,10 +64,7 @@ def _winner_name(output_dir: Path) -> str:
 
 
 def _track_final(config, result, params_path, winner, settings: Settings):
-    return track_training_run(
-        config=config,
-        result=result,
-        params_path=params_path,
+    options = MlflowTrackingOptions(
         tracking_uri=settings.mlflow_tracking_uri,
         experiment_name=settings.mlflow_experiment_name,
         model_name=settings.mlflow_model_name,
@@ -71,6 +72,12 @@ def _track_final(config, result, params_path, winner, settings: Settings):
         model_alias=settings.mlflow_model_alias,
         run_name=f"final-{winner}",
         extra_tags={"run_kind": "final", "selected_candidate": winner},
+    )
+    return track_training_run(
+        config=config,
+        result=result,
+        params_path=params_path,
+        options=options,
     )
 
 

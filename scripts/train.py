@@ -14,10 +14,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
-from configs.settings import load_settings
+from configs.settings import Settings, load_settings
 from training.configuration import load_training_config
-from training.pipeline import run_training_pipeline
-from tracking.mlflow_tracker import track_training_run
+from training.pipeline import TrainingPipelineResult, run_training_pipeline
+from tracking.mlflow_tracker import (
+    MlflowTrackingOptions,
+    MlflowTrackingResult,
+    track_training_run,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -33,9 +37,9 @@ def resolve_project_path(path: Path) -> Path:
     return path if path.is_absolute() else ROOT / path
 
 
-def main() -> int:
-    """Run training and print machine-readable metrics."""
-    arguments = build_parser().parse_args()
+def _execute_training(
+    arguments: argparse.Namespace,
+) -> tuple[TrainingPipelineResult, MlflowTrackingResult]:
     settings = load_settings()
     config = load_training_config(resolve_project_path(arguments.params))
     result = run_training_pipeline(
@@ -47,18 +51,36 @@ def main() -> int:
         config=config,
         result=result,
         params_path=resolve_project_path(arguments.params),
+        options=_tracking_options(settings),
+    )
+    return result, tracking
+
+
+def _tracking_options(settings: Settings) -> MlflowTrackingOptions:
+    return MlflowTrackingOptions(
         tracking_uri=settings.mlflow_tracking_uri,
         experiment_name=settings.mlflow_experiment_name,
         model_name=settings.mlflow_model_name,
         model_stage=settings.mlflow_model_stage,
         model_alias=settings.mlflow_model_alias,
     )
+
+
+def _print_summary(
+    result: TrainingPipelineResult, tracking: MlflowTrackingResult
+) -> None:
     print(json.dumps(result.metrics, indent=2, ensure_ascii=False))
     print(f"Model saved to: {result.artifacts.model}")
     print(f"MLflow run: {tracking.run_id}")
     print(
         f"Registered model: {tracking.model_name} v{tracking.registered_model_version}"
     )
+
+
+def main() -> int:
+    """Run training and print machine-readable metrics."""
+    result, tracking = _execute_training(build_parser().parse_args())
+    _print_summary(result, tracking)
     return 0
 
 

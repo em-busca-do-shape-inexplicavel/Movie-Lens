@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from configs.settings import Settings, load_settings
 from data.pipeline import load_feature_splits
 from models.pytorch_recommender import PyTorchRecommender
-from tracking.mlflow_tracker import track_training_run
+from tracking.mlflow_tracker import MlflowTrackingOptions, track_training_run
 from training.configuration import (
     ExperimentCandidateConfig,
     ExperimentSelectionConfig,
@@ -94,16 +94,19 @@ def _run_candidate(
 
 
 def _track_candidate(name, config, result, params_path, settings):
-    return track_training_run(
-        config=config,
-        result=result,
-        params_path=params_path,
+    options = MlflowTrackingOptions(
         tracking_uri=settings.mlflow_tracking_uri,
         experiment_name=settings.mlflow_experiment_name,
         model_name=settings.mlflow_model_name,
         publish_model=False,
         run_name=f"candidate-{name}",
         extra_tags={"run_kind": "candidate", "candidate": name},
+    )
+    return track_training_run(
+        config=config,
+        result=result,
+        params_path=params_path,
+        options=options,
     )
 
 
