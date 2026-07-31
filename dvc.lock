@@ -1,0 +1,86 @@
+schema: '2.0'
+stages:
+  validate:
+    cmd: python -c "import pathlib; 
+      pathlib.Path('artifacts').mkdir(parents=True, exist_ok=True)" && python 
+      scripts/validate_env.py > artifacts/validation_report.txt
+    deps:
+    - path: configs/settings.py
+      hash: md5
+      md5: d6be150080028cf554ea2a2375212230
+      size: 1373
+    - path: data/raw
+      hash: md5
+      md5: ff7791951628c1dfee8c8036fa7c25ca.dir
+      size: 3294793
+      nfiles: 4
+    - path: scripts/validate_env.py
+      hash: md5
+      md5: d24d8ef88972424aa2b798a8710837ca
+      size: 2254
+    outs:
+    - path: artifacts/validation_report.txt
+      hash: md5
+      md5: 69b9d587c7f12ff2047ed8e712044f73
+      size: 460
+  train:
+    cmd: python scripts/train.py --params params.yaml --output-dir artifacts
+    deps:
+    - path: artifacts/validation_report.txt
+      hash: md5
+      md5: 69b9d587c7f12ff2047ed8e712044f73
+      size: 460
+    - path: configs
+      hash: md5
+      md5: 68cb1a3a685d5dcc690a5db8d1789be2.dir
+      size: 1502
+      nfiles: 2
+    - path: data/raw
+      hash: md5
+      md5: ff7791951628c1dfee8c8036fa7c25ca.dir
+      size: 3294793
+      nfiles: 4
+    - path: scripts/train.py
+      hash: md5
+      md5: c69a119802bc5cf00b645d5c0bd7df82
+      size: 2225
+    - path: src
+      hash: md5
+      md5: a989041987cc7cab1db97c9ea667404c.dir
+      size: 68097
+      nfiles: 23
+    params:
+      params.yaml:
+        evaluation:
+          top_k: 10
+        training:
+          embedding_dim: 16
+          hidden_dims:
+          - 32
+          learning_rate: 0.001
+          weight_decay: 1e-05
+          ranking_weight: 2.0
+          relevance_threshold: 4.0
+          batch_size: 2048
+          epochs: 30
+          early_stopping_patience: 3
+          early_stopping_min_delta: 0.001
+          random_state: 42
+          device: cpu
+    outs:
+    - path: artifacts/config.json
+      hash: md5
+      md5: 67da39f1fe65f36fe950b3489295953e
+      size: 326
+    - path: artifacts/metrics.json
+      hash: md5
+      md5: a80619d2efd9dda83ffa9f22404ec23b
+      size: 563
+    - path: artifacts/model.pt
+      hash: md5
+      md5: 18109a86eb0620efd5374a7a64e1ed39
+      size: 1642069
+    - path: artifacts/selection_history.json
+      hash: md5
+      md5: 52e0383cd041e7aea01c62b55e395fd9
+      size: 402

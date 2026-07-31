@@ -1,0 +1,28 @@
+stages:
+  validate:
+    cmd: python -c "import pathlib; pathlib.Path('artifacts').mkdir(parents=True, exist_ok=True)" && python scripts/validate_env.py > artifacts/validation_report.txt
+    deps:
+      - scripts/validate_env.py
+      - configs/settings.py
+      - data/raw
+    outs:
+      - artifacts/validation_report.txt
+
+  train:
+    cmd: python scripts/train.py --params params.yaml --output-dir artifacts
+    deps:
+      - artifacts/validation_report.txt
+      - scripts/train.py
+      - src
+      - configs
+      - data/raw
+    params:
+      - training
+      - evaluation
+    outs:
+      - artifacts/model.pt
+      - artifacts/config.json
+      - artifacts/selection_history.json
+    metrics:
+      - artifacts/metrics.json:
+          cache: false
