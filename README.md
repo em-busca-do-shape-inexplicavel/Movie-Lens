@@ -122,8 +122,10 @@ artifacts/model.pt               rede e mapas de IDs para inferência
 artifacts/metrics.json           métricas finais e tamanhos dos splits
 artifacts/config.json            configuração efetivamente treinada
 artifacts/selection_history.json curvas e decisão do early stopping
-artifacts/params.yaml            parâmetros usados na execução
 ```
+
+O `params.yaml` utilizado também é armazenado entre os artefatos da run no
+MLflow, sem criar uma cópia adicional dentro de `artifacts/`.
 
 Com os parâmetros atuais, o early stopping executou 6 épocas, selecionou a
 época 3 e obteve RMSE de teste 1.0145 e NDCG@10 de 0.0242. `artifacts/` não é
@@ -148,15 +150,23 @@ Para carregar o modelo publicado:
 
 ```python
 import mlflow.pyfunc
+import pandas as pd
 
 model = mlflow.pyfunc.load_model(
-		"models:/movie-lens-pytorch-recommender/Production"
+	"models:/movie-lens-pytorch-recommender@production"
 )
-predictions = model.predict(...)
+predictions = model.predict(
+	pd.DataFrame({"user_id": [1], "movie_id": [1]})
+)
 ```
 
-Se a instalação do MLflow suportar aliases, o mesmo modelo também pode ser
-carregado por `models:/movie-lens-pytorch-recommender@production`.
+O stage `Production` também é mantido para atender ao desafio, embora o MLflow
+recomende aliases nas versões atuais. Para registrar novamente uma run já
+existente no mesmo servidor configurado no `.env`:
+
+```bash
+python scripts/register_model.py --run-id RUN_ID
+```
 
 ## Qualidade e testes
 

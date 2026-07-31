@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
-import subprocess
 import re
+import subprocess
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 import mlflow
 import mlflow.pyfunc
 import pandas as pd
+from mlflow.models import ModelSignature
 from mlflow.tracking import MlflowClient
+from mlflow.types import ColSpec, Schema
 
 from models.pytorch_recommender import PyTorchRecommender
 from training.configuration import TrainingPipelineConfig
@@ -41,7 +44,7 @@ class _MovieLensPyfuncModel(mlflow.pyfunc.PythonModel):
         checkpoint = Path(context.artifacts["checkpoint"])
         self._model = PyTorchRecommender.load(checkpoint)
 
-    def predict(self, context: Any, model_input: Any) -> pd.DataFrame:
+    def predict(self, context: Any, model_input: pd.DataFrame) -> pd.DataFrame:
         frame = (
             model_input
             if isinstance(model_input, pd.DataFrame)
@@ -72,10 +75,13 @@ def track_training_run(
         _log_metrics(result.metrics)
         mlflow.log_artifact(str(params_path))
         mlflow.log_artifacts(str(result.artifacts.model.parent))
+        input_example = _model_input_example()
         mlflow.pyfunc.log_model(
             artifact_path="model",
             python_model=_MovieLensPyfuncModel(),
             artifacts={"checkpoint": str(result.artifacts.model)},
+            input_example=input_example,
+            signature=_model_signature(),
         )
         mlflow.set_tags(tags)
     publication = register_model_version(
@@ -85,11 +91,12 @@ def track_training_run(
         stage=model_stage,
         alias=model_alias,
         tags=tags,
+        tracking_uri=tracking_uri,
     )
     return MlflowTrackingResult(
         run_id=run.info.run_id,
         model_name=model_name,
-        registered_model_version=publication.version,
+        registered_model_version=str(publication.version),
     )
 
 
@@ -101,15 +108,39 @@ def register_model_version(
     stage: str = DEFAULT_MODEL_STAGE,
     alias: str = DEFAULT_MODEL_ALIAS,
     tags: Mapping[str, str] | None = None,
+    tracking_uri: str | None = None,
 ) -> mlflow.entities.model_registry.model_version.ModelVersion:
     """Register the logged pyfunc model and promote the created version."""
+    if tracking_uri is not None:
+        mlflow.set_tracking_uri(tracking_uri)
     client = MlflowClient()
     registered = mlflow.register_model(
         model_uri=f"runs:/{run_id}/model", name=model_name, tags=dict(tags or {})
     )
     _update_registered_model(client, model_name, description, tags)
-    _promote_version(client, model_name, registered.version, stage, alias)
+    _promote_version(client, model_name, str(registered.version), stage, alias)
     return registered
+
+
+def _model_input_example() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "user_id": pd.Series([1], dtype="int64"),
+            "movie_id": pd.Series([1], dtype="int64"),
+        }
+    )
+
+
+def _model_signature() -> ModelSignature:
+    return ModelSignature(
+        inputs=Schema(
+            [
+                ColSpec("long", "user_id"),
+                ColSpec("long", "movie_id"),
+            ]
+        ),
+        outputs=Schema([ColSpec("double", "prediction")]),
+    )
 
 
 def _log_parameters(config: TrainingPipelineConfig) -> None:
@@ -190,15 +221,9 @@ def _update_registered_model(
     description: str,
     tags: Mapping[str, str] | None,
 ) -> None:
-    try:
-        client.update_registered_model(model_name, description=description)
-    except (AttributeError, mlflow.exceptions.MlflowException):
-        pass
+    client.update_registered_model(model_name, description=description)
     for key, value in (tags or {}).items():
-        try:
-            client.set_registered_model_tag(model_name, key, value)
-        except (AttributeError, mlflow.exceptions.MlflowException):
-            pass
+        client.set_registered_model_tag(model_name, key, value)
 
 
 def _promote_version(
@@ -208,16 +233,19 @@ def _promote_version(
     stage: str,
     alias: str,
 ) -> None:
-    try:
-        client.transition_model_version_stage(model_name, version, stage=stage)
-    except (AttributeError, mlflow.exceptions.MlflowException):
-        pass
-    try:
-        client.set_registered_model_alias(model_name, alias, version)
-    except (AttributeError, mlflow.exceptions.MlflowException):
-        pass
-    try:
-        client.set_model_version_tag(model_name, version, "stage", stage)
-        client.set_model_version_tag(model_name, version, "alias", alias)
-    except (AttributeError, mlflow.exceptions.MlflowException):
-        pass
+    client.transition_model_version_stage(model_name, version, stage=stage)
+    client.set_registered_model_alias(model_name, alias, version)
+
+    promoted = client.get_model_version(model_name, version)
+    if promoted.current_stage != stage:
+        raise mlflow.exceptions.MlflowException(
+            f"Model version {model_name} v{version} was not promoted to {stage}."
+        )
+    aliased = client.get_model_version_by_alias(model_name, alias)
+    if str(aliased.version) != str(version):
+        raise mlflow.exceptions.MlflowException(
+            f"Alias {alias!r} does not point to {model_name} v{version}."
+        )
+
+    client.set_model_version_tag(model_name, version, "stage", stage)
+    client.set_model_version_tag(model_name, version, "alias", alias)

@@ -7,9 +7,9 @@ import pandas as pd
 from mlflow.tracking import MlflowClient
 
 from models.pytorch_recommender import NeuralRecommenderConfig
+from tracking.mlflow_tracker import register_model_version, track_training_run
 from training.configuration import TrainingPipelineConfig
 from training.pipeline import run_training_pipeline
-from tracking.mlflow_tracker import track_training_run
 
 
 def test_mlflow_tracking_logs_run_and_promotes_model(tmp_path: Path) -> None:
@@ -21,15 +21,20 @@ def test_mlflow_tracking_logs_run_and_promotes_model(tmp_path: Path) -> None:
     params_path.write_text("training:\n  embedding_dim: 4\n", encoding="utf-8")
 
     result = run_training_pipeline(raw_data_dir, tmp_path / "artifacts", config)
-    tracking_uri = (tmp_path / "mlruns").as_uri()
+    tracking_uri = f"sqlite:///{tmp_path / 'mlflow.db'}"
     mlflow.set_tracking_uri(tracking_uri)
+    experiment_name = "movie-lens-recommender"
+    mlflow.create_experiment(
+        experiment_name,
+        artifact_location=(tmp_path / "mlartifacts").as_uri(),
+    )
 
     tracked = track_training_run(
         config=config,
         result=result,
         params_path=params_path,
         tracking_uri=tracking_uri,
-        experiment_name="movie-lens-recommender",
+        experiment_name=experiment_name,
         model_name="movie-lens-pytorch-recommender",
     )
 
@@ -50,6 +55,30 @@ def test_mlflow_tracking_logs_run_and_promotes_model(tmp_path: Path) -> None:
         tracked.model_name, tracked.registered_model_version
     )
     assert version.current_stage == "Production"
+    aliased = client.get_model_version_by_alias(tracked.model_name, "production")
+    assert str(aliased.version) == tracked.registered_model_version
+
+    loaded = mlflow.pyfunc.load_model(f"models:/{tracked.model_name}@production")
+    predictions = loaded.predict(pd.DataFrame({"user_id": [1], "movie_id": [10]}))
+    assert list(predictions.columns) == ["prediction"]
+    assert len(predictions) == 1
+    assert loaded.metadata.signature is not None
+
+    other_tracking_uri = f"sqlite:///{tmp_path / 'other.db'}"
+    mlflow.set_tracking_uri(other_tracking_uri)
+    registered_again = register_model_version(
+        run_id=tracked.run_id,
+        model_name=tracked.model_name,
+        stage="Staging",
+        alias="candidate",
+        tracking_uri=tracking_uri,
+    )
+    assert str(registered_again.version) == "2"
+    assert mlflow.get_tracking_uri() == tracking_uri
+    candidate = MlflowClient().get_model_version_by_alias(
+        tracked.model_name, "candidate"
+    )
+    assert str(candidate.version) == str(registered_again.version)
 
 
 def _sample_ratings() -> pd.DataFrame:
