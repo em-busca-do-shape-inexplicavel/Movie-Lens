@@ -22,35 +22,48 @@ stages:
       md5: a67c6cb98f0c618fbf0ab446006707a0
       size: 458
   train:
-    cmd: python scripts/train.py --params params.yaml --output-dir artifacts
+    cmd: python scripts/train_experiments.py --features-dir data/features
+      --params params.yaml --output-dir artifacts
     deps:
-    - path: artifacts/validation_report.txt
-      hash: md5
-      md5: a67c6cb98f0c618fbf0ab446006707a0
-      size: 458
     - path: configs
       hash: md5
       md5: 7259d5f6fd1009679d86718e43ca4fab.dir
       size: 1451
       nfiles: 2
-    - path: data/raw
+    - path: data/features/train.parquet
       hash: md5
-      md5: ff7791951628c1dfee8c8036fa7c25ca.dir
-      size: 3294793
-      nfiles: 4
-    - path: scripts/train.py
+      md5: 5fbf91c19a6385468cb13791842ba291
+      size: 827056
+    - path: data/features/validation.parquet
       hash: md5
-      md5: a17260ffcedb1e9adbeb7b3279885b24
-      size: 2159
+      md5: 3796a1c0693c0c1f4a78dbd977483bbd
+      size: 13862
+    - path: scripts/train_experiments.py
+      hash: md5
+      md5: ceff751fc3faf2cb721703a56c319c1b
+      size: 4098
     - path: src
       hash: md5
-      md5: a9abb4aa885d751f1941efc1c380431a.dir
-      size: 66214
-      nfiles: 23
+      md5: 663b9e9f7e1cc014f74024311fa8b622.dir
+      size: 77821
+      nfiles: 25
     params:
       params.yaml:
         evaluation:
           top_k: 10
+        experiments:
+          selection_metric: validation_ndcg@10
+          direction: maximize
+          candidates:
+          - name: ranking-02
+            overrides:
+              ranking_weight: 0.2
+          - name: ranking-10
+            overrides:
+              ranking_weight: 1.0
+          - name: ranking-20
+            overrides:
+              ranking_weight: 2.0
         training:
           embedding_dim: 16
           hidden_dims:
@@ -68,17 +81,137 @@ stages:
     outs:
     - path: artifacts/config.json
       hash: md5
-      md5: 35730b77a5a1eb2939f1452fd0562f47
+      md5: 6935cc06f2ab17a00c525094077da94b
       size: 310
-    - path: artifacts/metrics.json
+    - path: artifacts/experiment_summary.json
       hash: md5
-      md5: 9c38302064e527fd4b1a5bab1c360fc9
-      size: 546
+      md5: 365ae81a3b38c91b59a1eeeb51dd0deb
+      size: 3780
+    - path: artifacts/experiments
+      hash: md5
+      md5: 8bc9e4c58d65f8f0638db0e7b55807c7.dir
+      size: 4916916
+      nfiles: 12
     - path: artifacts/model.pt
       hash: md5
-      md5: dce1d310900bb97ba776137c62e7c3da
+      md5: 174450ebe52ca597ff448a3c887f1551
       size: 1642045
     - path: artifacts/selection_history.json
       hash: md5
-      md5: 1805cc41de7b9df9fdf99374e7fafa39
-      size: 379
+      md5: e1e66d7ed32d510d4b8626ec8edfe878
+      size: 383
+    - path: artifacts/training_metrics.json
+      hash: md5
+      md5: aeb03aa77cbd98c065df38a0b9c6c051
+      size: 225
+  preprocess:
+    cmd: python scripts/preprocess_data.py --raw-dir data/raw --output-dir
+      data/processed
+    deps:
+    - path: artifacts/validation_report.txt
+      hash: md5
+      md5: a67c6cb98f0c618fbf0ab446006707a0
+      size: 458
+    - path: data/raw/ratings.csv
+      hash: md5
+      md5: 325a6f09399d1c45671f187505e1a100
+      size: 2483723
+    - path: scripts/preprocess_data.py
+      hash: md5
+      md5: a81c18aae772c57c85f6ac3a3d26fc1a
+      size: 943
+    - path: src/data/loaders.py
+      hash: md5
+      md5: 7446165b87c20e791d333bcba3006151
+      size: 614
+    - path: src/data/pipeline.py
+      hash: md5
+      md5: 06abc38ba55155a8a36c11ca329a037f
+      size: 4018
+    outs:
+    - path: data/processed
+      hash: md5
+      md5: c7b6c55087dce3e6ac1f6083ee345826.dir
+      size: 837902
+      nfiles: 2
+  feature_eng:
+    cmd: python scripts/build_features.py --dataset
+      data/processed/ratings.parquet --output-dir data/features
+    deps:
+    - path: data/processed/ratings.parquet
+      hash: md5
+      md5: cad31c648732037d248c289a297be66f
+      size: 837798
+    - path: scripts/build_features.py
+      hash: md5
+      md5: a68f4c856390119dc015de209fd1e685
+      size: 977
+    - path: src/data/pipeline.py
+      hash: md5
+      md5: 06abc38ba55155a8a36c11ca329a037f
+      size: 4018
+    - path: src/data/splitting.py
+      hash: md5
+      md5: e1f728afe9c7b5461e2447125800b39e
+      size: 1761
+    outs:
+    - path: data/features
+      hash: md5
+      md5: 7e8fd76440101a00365950fb51901252.dir
+      size: 855006
+      nfiles: 4
+  evaluate:
+    cmd: python scripts/evaluate_model.py --test-data data/features/test.parquet
+      --params params.yaml --output-dir artifacts
+    deps:
+    - path: artifacts/config.json
+      hash: md5
+      md5: 6935cc06f2ab17a00c525094077da94b
+      size: 310
+    - path: artifacts/experiment_summary.json
+      hash: md5
+      md5: 365ae81a3b38c91b59a1eeeb51dd0deb
+      size: 3780
+    - path: artifacts/model.pt
+      hash: md5
+      md5: 174450ebe52ca597ff448a3c887f1551
+      size: 1642045
+    - path: artifacts/selection_history.json
+      hash: md5
+      md5: e1e66d7ed32d510d4b8626ec8edfe878
+      size: 383
+    - path: artifacts/training_metrics.json
+      hash: md5
+      md5: aeb03aa77cbd98c065df38a0b9c6c051
+      size: 225
+    - path: configs
+      hash: md5
+      md5: 7259d5f6fd1009679d86718e43ca4fab.dir
+      size: 1451
+      nfiles: 2
+    - path: data/features/test.parquet
+      hash: md5
+      md5: 7d3cdb73e34a62611104802304ad1d79
+      size: 13970
+    - path: scripts/evaluate_model.py
+      hash: md5
+      md5: a99a286741b38908d5218a82b3394451
+      size: 3124
+    - path: src
+      hash: md5
+      md5: 663b9e9f7e1cc014f74024311fa8b622.dir
+      size: 77821
+      nfiles: 25
+    params:
+      params.yaml:
+        evaluation:
+          top_k: 10
+    outs:
+    - path: artifacts/metrics.json
+      hash: md5
+      md5: 2449a2b058323b6139147c233e006d30
+      size: 548
+    - path: artifacts/registry.json
+      hash: md5
+      md5: fbcff7bfa22df3743d77fa19a245ec5f
+      size: 162

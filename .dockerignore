@@ -23,4 +23,5 @@ notebooks/
 .dvc-storage/
 data/raw/
 data/processed/
+data/features/
 tests/

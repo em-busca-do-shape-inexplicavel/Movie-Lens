@@ -8,21 +8,64 @@ stages:
     outs:
       - artifacts/validation_report.txt
 
-  train:
-    cmd: python scripts/train.py --params params.yaml --output-dir artifacts
+  preprocess:
+    cmd: python scripts/preprocess_data.py --raw-dir data/raw --output-dir data/processed
     deps:
       - artifacts/validation_report.txt
-      - scripts/train.py
+      - data/raw/ratings.csv
+      - scripts/preprocess_data.py
+      - src/data/loaders.py
+      - src/data/pipeline.py
+    outs:
+      - data/processed
+
+  feature_eng:
+    cmd: python scripts/build_features.py --dataset data/processed/ratings.parquet --output-dir data/features
+    deps:
+      - data/processed/ratings.parquet
+      - scripts/build_features.py
+      - src/data/pipeline.py
+      - src/data/splitting.py
+    outs:
+      - data/features
+
+  train:
+    cmd: python scripts/train_experiments.py --features-dir data/features --params params.yaml --output-dir artifacts
+    deps:
+      - data/features/train.parquet
+      - data/features/validation.parquet
+      - scripts/train_experiments.py
       - src
       - configs
-      - data/raw
     params:
       - training
       - evaluation
+      - experiments
     outs:
+      - artifacts/experiments
       - artifacts/model.pt
       - artifacts/config.json
       - artifacts/selection_history.json
+      - artifacts/training_metrics.json
+      - artifacts/experiment_summary.json
+
+  evaluate:
+    cmd: python scripts/evaluate_model.py --test-data data/features/test.parquet --params params.yaml --output-dir artifacts
+    deps:
+      - artifacts/model.pt
+      - artifacts/config.json
+      - artifacts/selection_history.json
+      - artifacts/training_metrics.json
+      - artifacts/experiment_summary.json
+      - data/features/test.parquet
+      - scripts/evaluate_model.py
+      - src
+      - configs
+    params:
+      - evaluation
+    outs:
+      - artifacts/registry.json:
+          cache: false
     metrics:
       - artifacts/metrics.json:
           cache: false

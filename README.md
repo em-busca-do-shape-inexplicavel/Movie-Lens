@@ -49,20 +49,22 @@ matriz e embeddings.
 
 ## Resultado do recomendador PyTorch
 
-O notebook `06_pytorch_recommender.ipynb` combina MSE de ratings com uma perda
-pairwise baseada em feedback positivo e amostragem negativa. Na validação,
-foram comparados pesos de ranking de 0,2, 1,0 e 2,0. O peso 2,0 venceu entre as
-configurações neurais pelo NDCG@10.
+O pipeline oficial combina MSE de ratings com uma perda pairwise baseada em
+feedback positivo e amostragem negativa. Três configurações são rastreadas no
+MLflow e comparadas somente na validação temporal. O peso 1,0 venceu pelo
+NDCG@10 e foi o único modelo avaliado no teste.
 
-| Etapa | Modelo | RMSE | MAE | NDCG@10 | Recall@10 |
+| Etapa | Configuração | RMSE | MAE | NDCG@10 | Recall@10 |
 |---|---|---:|---:|---:|---:|
-| Validação | PyTorch, `ranking_weight=2.0` | 0.9784 | 0.7533 | 0.0331 | 0.0692 |
-| Teste | PyTorch, `ranking_weight=2.0` | 1.0505 | 0.8051 | 0.0274 | 0.0468 |
+| Validação | `ranking_weight=0.2` | 0.9071 | 0.7099 | 0.0330 | 0.0605 |
+| Validação | `ranking_weight=1.0` | 0.9219 | 0.7277 | **0.0361** | **0.0663** |
+| Validação | `ranking_weight=2.0` | 0.9379 | 0.7403 | 0.0345 | 0.0605 |
+| Teste | Vencedor, `ranking_weight=1.0` | 0.9946 | 0.7761 | 0.0245 | 0.0413 |
 
-Na mesma validação, o Scikit-Learn alcançou NDCG@10 de 0,0363. Portanto, a rede
-neural ainda não vence o baseline aditivo em ranking, embora aprenda afinidades
-usuário-filme e produza listas personalizadas. O resultado é mantido sem
-maquiagem: modelos mais complexos precisam justificar seu custo com métricas.
+Na mesma validação, o Scikit-Learn alcançou NDCG@10 de 0,0363. A rede neural
+ficou muito próxima na validação, mas ainda abaixo do baseline aditivo no teste.
+Ela aprende afinidades usuário-filme e produz listas personalizadas, porém o
+resultado reforça que modelos mais complexos precisam justificar seu custo.
 
 ## Estrutura
 
@@ -70,7 +72,9 @@ maquiagem: modelos mais complexos precisam justificar seu custo com métricas.
 configs/       configurações carregadas do ambiente
 .dvc/          configuração do versionamento de dados
 data/raw/      arquivos originais do MovieLens
-dvc.yaml       etapas reproduzíveis de validação e treinamento
+data/processed dados normalizados pelo stage de preprocessamento
+data/features  splits temporais usados pelo modelo
+dvc.yaml       cinco stages reproduzíveis do pipeline
 notebooks/     validação, EDA e experimentos
 scripts/       pontos de entrada executáveis
 src/data/      loaders, splits e preprocessadores
@@ -105,8 +109,17 @@ python scripts/validate_env.py
 ## Versionamento e pipeline com DVC
 
 O arquivo `data/raw.dvc` identifica exatamente a versão dos quatro CSVs do
-MovieLens. O `dvc.yaml` define o fluxo `validate → train`, e o `dvc.lock`
-registra os hashes dos dados, código, parâmetros e artefatos utilizados.
+MovieLens. O `dvc.yaml` e o `dvc.lock` implementam e fixam este fluxo:
+
+```text
+validate → preprocess → feature_eng → train → evaluate
+```
+
+- `validate`: confirma dependências e arquivos obrigatórios;
+- `preprocess`: limpa tipos, duplicatas e valores inválidos;
+- `feature_eng`: gera treino, validação e teste com split temporal;
+- `train`: rastreia três candidatos e retreina o vencedor;
+- `evaluate`: usa o teste uma única vez e publica o modelo vencedor.
 
 O remote padrão desta branch é `.dvc-storage/`, adequado para desenvolvimento
 local e ignorado pelo Git. Em uma equipe, substitua a URL por um armazenamento
@@ -133,27 +146,30 @@ dvc metrics show
 dvc dag
 ```
 
-O `dvc repro` valida dados e dependências, treina o modelo, atualiza os
-artefatos, registra a execução no MLflow e só repete etapas cujas dependências
-tenham mudado. Depois de uma reprodução intencional, envie os novos objetos ao
-remote com `dvc push` e versione `dvc.lock` no Git.
+O `dvc repro` valida dados e dependências, rastreia os experimentos, atualiza os
+artefatos e só repete etapas cujas dependências tenham mudado. Use
+`dvc repro --force` quando precisar registrar novamente todas as runs no MLflow.
+Depois de uma reprodução intencional, envie os objetos com `dvc push` e versione
+o `dvc.lock` no Git.
 
 ## Pipeline de treinamento
 
-Os hiperparâmetros ficam em `params.yaml`. Para executar o fluxo completo:
+Os hiperparâmetros e candidatos ficam em `params.yaml`. Para executar o fluxo
+completo, inicie o MLflow e use:
 
 ```bash
-python scripts/train.py --params params.yaml --output-dir artifacts
+dvc repro
 ```
 
-O comando realiza estas etapas:
+O pipeline realiza estas etapas:
 
-1. carrega os ratings e aplica o split temporal;
-2. treina com validação e seleciona a melhor época por early stopping;
-3. retreina do zero com treino e validação pelo número de épocas escolhido;
-4. avalia uma única vez no teste;
-5. salva modelo, métricas, configuração e histórico de seleção;
-6. registra a run e promove a versão no Model Registry.
+1. normaliza os ratings e cria o split temporal;
+2. treina três candidatos com early stopping;
+3. registra parâmetros, métricas e modelos das três runs;
+4. escolhe o maior `validation_ndcg@10`;
+5. retreina o vencedor com treino e validação;
+6. avalia uma única vez no teste;
+7. registra e promove somente o modelo final no Registry.
 
 Artefatos produzidos:
 
@@ -162,14 +178,20 @@ artifacts/model.pt               rede e mapas de IDs para inferência
 artifacts/metrics.json           métricas finais e tamanhos dos splits
 artifacts/config.json            configuração efetivamente treinada
 artifacts/selection_history.json curvas e decisão do early stopping
+artifacts/experiment_summary.json comparação, run IDs e candidato vencedor
+artifacts/experiments/            artefatos dos três candidatos
+artifacts/registry.json           run e versão publicada no Registry
 ```
 
 O `params.yaml` utilizado também é armazenado entre os artefatos da run no
 MLflow, sem criar uma cópia adicional dentro de `artifacts/`.
 
-Com os parâmetros atuais, o early stopping executou 6 épocas, selecionou a
-época 3 e obteve RMSE de teste 1.0145 e NDCG@10 de 0.0242. `artifacts/` não é
-versionado diretamente pelo Git; ele fica ao lado dos artefatos do MLflow.
+Com os parâmetros atuais, `ranking-10` venceu, o early stopping selecionou a
+época 3 e o modelo final obteve RMSE de teste 0,9946 e NDCG@10 de 0,0245.
+`artifacts/` não é versionado diretamente pelo Git; seus hashes ficam no DVC.
+
+O comando `python scripts/train.py` continua disponível como execução direta de
+uma única configuração, mas não substitui o fluxo completo de experimentação.
 
 ## MLflow local
 
@@ -183,8 +205,11 @@ mlflow server \
 	--port 5000
 ```
 
-Depois execute o treino normal. O pipeline registra parâmetros, métricas,
-artefatos e a versão promovida do modelo `movie-lens-pytorch-recommender`.
+Depois execute `dvc repro --force`. O pipeline cria as runs
+`candidate-ranking-02`, `candidate-ranking-10`, `candidate-ranking-20` e
+`final-ranking-10`. Runs candidatas recebem a tag `run_kind=candidate` e não são
+publicadas. A run final passa por `Staging`, chega a `Production` e recebe o
+alias `production` no modelo `movie-lens-pytorch-recommender`.
 
 Para carregar o modelo publicado:
 

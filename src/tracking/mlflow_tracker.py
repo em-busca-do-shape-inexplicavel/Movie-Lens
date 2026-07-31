@@ -65,27 +65,19 @@ def track_training_run(
     model_stage: str = DEFAULT_MODEL_STAGE,
     model_alias: str = DEFAULT_MODEL_ALIAS,
     description: str = DEFAULT_MODEL_DESCRIPTION,
+    publish_model: bool = True,
+    run_name: str | None = None,
+    extra_tags: Mapping[str, str] | None = None,
 ) -> MlflowTrackingResult:
-    """Log metrics, artifacts, and register the trained model version."""
+    """Log one run and optionally publish its model in the Registry."""
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(experiment_name)
-    tags = _build_tags(result.metrics)
-    with mlflow.start_run(run_name=f"{model_name}-training") as run:
-        _log_parameters(config)
-        _log_metrics(result.metrics)
-        mlflow.log_artifact(str(params_path))
-        mlflow.log_artifacts(str(result.artifacts.model.parent))
-        input_example = _model_input_example()
-        mlflow.pyfunc.log_model(
-            artifact_path="model",
-            python_model=_MovieLensPyfuncModel(),
-            artifacts={"checkpoint": str(result.artifacts.model)},
-            input_example=input_example,
-            signature=_model_signature(),
-        )
-        mlflow.set_tags(tags)
+    tags = _build_tags(result.metrics, extra_tags)
+    run_id = _log_run(config, result, params_path, run_name, model_name, tags)
+    if not publish_model:
+        return MlflowTrackingResult(run_id=run_id, model_name=model_name)
     publication = register_model_version(
-        run_id=run.info.run_id,
+        run_id=run_id,
         model_name=model_name,
         description=description,
         stage=model_stage,
@@ -94,9 +86,47 @@ def track_training_run(
         tracking_uri=tracking_uri,
     )
     return MlflowTrackingResult(
-        run_id=run.info.run_id,
+        run_id=run_id,
         model_name=model_name,
         registered_model_version=str(publication.version),
+    )
+
+
+def _log_run(
+    config: TrainingPipelineConfig,
+    result: TrainingPipelineResult,
+    params_path: Path,
+    run_name: str | None,
+    model_name: str,
+    tags: Mapping[str, str],
+) -> str:
+    with mlflow.start_run(run_name=run_name or f"{model_name}-training") as run:
+        _log_parameters(config)
+        _log_metrics(result.metrics)
+        _log_run_artifacts(result, params_path)
+        _log_pyfunc_model(result.artifacts.model)
+        mlflow.set_tags(dict(tags))
+        return run.info.run_id
+
+
+def _log_run_artifacts(result: TrainingPipelineResult, params_path: Path) -> None:
+    mlflow.log_artifact(str(params_path))
+    for artifact in (
+        result.artifacts.model,
+        result.artifacts.metrics,
+        result.artifacts.config,
+        result.artifacts.selection_history,
+    ):
+        mlflow.log_artifact(str(artifact))
+
+
+def _log_pyfunc_model(checkpoint: Path) -> None:
+    mlflow.pyfunc.log_model(
+        name="model",
+        python_model=_MovieLensPyfuncModel(),
+        artifacts={"checkpoint": str(checkpoint)},
+        input_example=_model_input_example(),
+        signature=_model_signature(),
     )
 
 
@@ -171,7 +201,7 @@ def _log_metrics(metrics: Mapping[str, Any]) -> None:
         if isinstance(value, bool):
             mlflow.set_tag(metric_name, str(value).lower())
             continue
-        if isinstance(value, (int, float)):
+        if isinstance(value, int | float):
             mlflow.log_metric(metric_name, float(value))
             continue
         mlflow.set_tag(metric_name, str(value))
@@ -182,7 +212,9 @@ def _sanitize_metric_name(name: str) -> str:
     return sanitized.replace(" ", "_")
 
 
-def _build_tags(metrics: Mapping[str, Any]) -> dict[str, str]:
+def _build_tags(
+    metrics: Mapping[str, Any], extra_tags: Mapping[str, str] | None = None
+) -> dict[str, str]:
     tags = {
         "project": "movie-lens",
         "framework": "pytorch",
@@ -195,6 +227,7 @@ def _build_tags(metrics: Mapping[str, Any]) -> dict[str, str]:
         tags["selection_epochs_ran"] = str(metrics["selection_epochs_ran"])
     if "stopped_early" in metrics:
         tags["stopped_early"] = str(metrics["stopped_early"]).lower()
+    tags.update(dict(extra_tags or {}))
     git_commit = _git_commit_hash()
     if git_commit is not None:
         tags["git_commit"] = git_commit
@@ -233,9 +266,18 @@ def _promote_version(
     stage: str,
     alias: str,
 ) -> None:
+    if stage.casefold() == "production":
+        client.transition_model_version_stage(model_name, version, stage="Staging")
     client.transition_model_version_stage(model_name, version, stage=stage)
     client.set_registered_model_alias(model_name, alias, version)
+    _verify_promotion(client, model_name, version, stage, alias)
+    client.set_model_version_tag(model_name, version, "stage", stage)
+    client.set_model_version_tag(model_name, version, "alias", alias)
 
+
+def _verify_promotion(
+    client: MlflowClient, model_name: str, version: str, stage: str, alias: str
+) -> None:
     promoted = client.get_model_version(model_name, version)
     if promoted.current_stage != stage:
         raise mlflow.exceptions.MlflowException(
@@ -246,6 +288,3 @@ def _promote_version(
         raise mlflow.exceptions.MlflowException(
             f"Alias {alias!r} does not point to {model_name} v{version}."
         )
-
-    client.set_model_version_tag(model_name, version, "stage", stage)
-    client.set_model_version_tag(model_name, version, "alias", alias)

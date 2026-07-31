@@ -14,3 +14,17 @@ training:
 
 evaluation:
   top_k: 10
+
+experiments:
+  selection_metric: validation_ndcg@10
+  direction: maximize
+  candidates:
+    - name: ranking-02
+      overrides:
+        ranking_weight: 0.2
+    - name: ranking-10
+      overrides:
+        ranking_weight: 1.0
+    - name: ranking-20
+      overrides:
+        ranking_weight: 2.0
