@@ -56,7 +56,7 @@ def save_experiment_summary(
 
 def _numeric_metric(metrics: dict[str, MetricValue], name: str) -> float:
     value = metrics.get(name)
-    if not isinstance(value, (int, float)) or isinstance(value, bool):
+    if not isinstance(value, int | float) or isinstance(value, bool):
         raise ValueError(f"selection metric {name!r} is missing or non-numeric")
     return float(value)
 

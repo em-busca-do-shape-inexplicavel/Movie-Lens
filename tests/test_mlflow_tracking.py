@@ -7,7 +7,11 @@ import pandas as pd
 from mlflow.tracking import MlflowClient
 
 from models.pytorch_recommender import NeuralRecommenderConfig
-from tracking.mlflow_tracker import register_model_version, track_training_run
+from tracking.mlflow_tracker import (
+    MlflowTrackingOptions,
+    register_model_version,
+    track_training_run,
+)
 from training.configuration import TrainingPipelineConfig
 from training.pipeline import run_training_pipeline
 
@@ -33,9 +37,10 @@ def test_mlflow_tracking_logs_run_and_promotes_model(tmp_path: Path) -> None:
         config=config,
         result=result,
         params_path=params_path,
-        tracking_uri=tracking_uri,
-        experiment_name=experiment_name,
-        model_name="movie-lens-pytorch-recommender",
+        options=MlflowTrackingOptions(
+            tracking_uri=tracking_uri,
+            experiment_name=experiment_name,
+        ),
     )
 
     assert tracked.run_id
@@ -68,12 +73,14 @@ def test_mlflow_tracking_logs_run_and_promotes_model(tmp_path: Path) -> None:
         config=config,
         result=result,
         params_path=params_path,
-        tracking_uri=tracking_uri,
-        experiment_name=experiment_name,
-        model_name=tracked.model_name,
-        publish_model=False,
-        run_name="candidate-test",
-        extra_tags={"run_kind": "candidate"},
+        options=MlflowTrackingOptions(
+            tracking_uri=tracking_uri,
+            experiment_name=experiment_name,
+            model_name=tracked.model_name,
+            publish_model=False,
+            run_name="candidate-test",
+            extra_tags={"run_kind": "candidate"},
+        ),
     )
     assert candidate.registered_model_version is None
     assert mlflow.get_run(candidate.run_id).data.tags["run_kind"] == "candidate"
