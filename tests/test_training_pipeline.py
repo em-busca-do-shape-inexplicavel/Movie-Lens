@@ -36,6 +36,8 @@ def test_pipeline_persists_loadable_artifacts(tmp_path: Path) -> None:
     assert all(path.exists() for path in _artifact_paths(result.artifacts))
     assert result.metrics["selected_epochs"] == 1
     assert result.metrics["stopped_early"]
+    assert result.metrics["best_epoch"] == 1
+    assert result.metrics["training_seconds"] >= 0
     persisted_metrics = json.loads(result.artifacts.metrics.read_text())
     assert persisted_metrics == result.metrics
     assert PyTorchRecommender.load(result.artifacts.model).catalog_size > 0

@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     data_dir: Path = Path("data")
     mlflow_tracking_uri: str = "http://localhost:5000"
     mlflow_experiment_name: str = "movie-lens-recommender"
+    mlflow_model_name: str = "movie-lens-pytorch-recommender"
+    mlflow_model_stage: str = "Production"
+    mlflow_model_alias: str = "production"
 
     @property
     def resolved_data_dir(self) -> Path:
