@@ -3,6 +3,9 @@
 Sistema de recomendação desenvolvido para o Tech Challenge — Fase 02 da FIAP.
 O projeto usa o MovieLens Small como analogia de um e-commerce:
 
+**Documentos principais:** [Model Card](MODEL_CARD.md) ·
+[Pipeline DVC](dvc.yaml) · [Parâmetros](params.yaml)
+
 | MovieLens | E-commerce |
 |---|---|
 | `userId` | Cliente |
@@ -20,7 +23,7 @@ O dataset possui mais de 100 mil interações usuário-item e atende ao mínimo 
 - Baseline de popularidade.
 - Baselines Scikit-Learn de média global e vieses aditivos.
 - Fatoração de matriz com NumPy.
-- Recomendador neural híbrido com embeddings PyTorch.
+- Recomendador neural colaborativo com embeddings PyTorch.
 - Pipeline DVC reprodutível com early stopping, checkpoints e tracking com MLflow.
 - Precision@K, Recall@K, NDCG@K, Hit Rate@K, Coverage@K, RMSE e MAE.
 - Factory para modelos e Strategy para preprocessamento.
@@ -29,6 +32,40 @@ O dataset possui mais de 100 mil interações usuário-item e atende ao mínimo 
 MLflow é usado para tracking e registry local, enquanto o DVC versiona os dados
 e os artefatos reproduzíveis. O ambiente também pode ser executado com uma
 imagem Docker multi-stage e serviços Compose separados para treino e MLflow.
+
+## Entrega
+
+| Requisito | Implementação |
+|---|---|
+| Dataset com mais de 10 mil interações | MovieLens Latest Small, 100.836 ratings |
+| Split sem vazamento | Leave-two-out temporal por usuário |
+| Baselines | Popularidade, média global, vieses aditivos e fatoração de matriz |
+| Modelo PyTorch | Embeddings, perda de rating e perda pairwise |
+| Pelo menos quatro métricas | RMSE, MAE e cinco métricas Top-K |
+| Early stopping | Paciência 3 e restauração da melhor época |
+| Pipeline DVC | `validate → preprocess → feature_eng → train → evaluate` |
+| MLflow Tracking | Três candidatos e uma run final |
+| Model Registry | Promoção `Staging → Production` e alias `production` |
+| Docker | Dockerfile multi-stage e Compose com treino e MLflow |
+| Model Card | [Limitações, vieses e desempenho](MODEL_CARD.md) |
+| Qualidade | pytest, Ruff, pre-commit, type hints e padrões de projeto |
+
+## Equipe
+
+Autoria identificada no histórico Git do projeto:
+
+- `KikuTiii` — Matheus Kikuti;
+- `G-santanna`;
+- `renan.casalle`;
+- `v-leonel`.
+
+## Vídeo de apresentação
+
+O vídeo deve apresentar o projeto em até cinco minutos usando a estrutura STAR:
+situação, tarefa, ações e resultados.
+
+> **Antes da submissão:** substituir esta observação pelo link público ou não
+> listado do vídeo.
 
 ## Resultado do baseline Scikit-Learn
 
@@ -87,10 +124,13 @@ tests/         testes automatizados
 
 ## Preparação do ambiente
 
-Instale o [uv](https://docs.astral.sh/uv/) e execute:
+Clone o repositório, instale o [uv](https://docs.astral.sh/uv/) e sincronize
+exatamente as versões registradas no lockfile:
 
 ```bash
-uv sync
+git clone git@github.com:em-busca-do-shape-inexplicavel/Movie-Lens.git
+cd Movie-Lens
+uv sync --frozen
 cp .env.example .env
 ```
 
@@ -121,14 +161,19 @@ validate → preprocess → feature_eng → train → evaluate
 - `train`: rastreia três candidatos e retreina o vencedor;
 - `evaluate`: usa o teste uma única vez e publica o modelo vencedor.
 
-O remote padrão desta branch é `.dvc-storage/`, adequado para desenvolvimento
-local e ignorado pelo Git. Em uma equipe, substitua a URL por um armazenamento
-compartilhado antes do merge e nunca versione credenciais:
+O remote padrão é `.dvc-storage/`, adequado para a demonstração local e ignorado
+pelo Git. Os dados só poderão ser recuperados em outra máquina se essa pasta for
+fornecida ou se o remote for substituído por um armazenamento compartilhado.
+Nunca versione credenciais:
 
 ```bash
 dvc remote modify localstorage URL_DO_REMOTE_COMPARTILHADO
 dvc push
 ```
+
+O remote compartilhado do Google Drive foi adiado porque o cliente OAuth padrão
+do DVC está bloqueado pelo Google. Essa limitação não altera o pipeline, mas
+significa que a entrega atual usa o remote local.
 
 Em uma máquina que já tenha acesso ao remote configurado, recupere os dados:
 
@@ -189,6 +234,9 @@ MLflow, sem criar uma cópia adicional dentro de `artifacts/`.
 Com os parâmetros atuais, `ranking-10` venceu, o early stopping selecionou a
 época 3 e o modelo final obteve RMSE de teste 0,9946 e NDCG@10 de 0,0245.
 `artifacts/` não é versionado diretamente pelo Git; seus hashes ficam no DVC.
+
+Os resultados completos, o escopo de uso, as limitações e os vieses estão
+documentados no [Model Card](MODEL_CARD.md).
 
 O comando `python scripts/train.py` continua disponível como execução direta de
 uma única configuração, mas não substitui o fluxo completo de experimentação.
@@ -285,16 +333,16 @@ o cache DVC do contêiner e os artefatos persistidos pelo MLflow.
 ## Qualidade e testes
 
 ```bash
-ruff check src tests scripts configs
-ruff format --check src tests scripts configs
-pytest
+uv run ruff check src tests scripts configs
+uv run ruff format --check src tests scripts configs
+uv run pytest
 ```
 
 Para instalar os hooks locais:
 
 ```bash
-pre-commit install
-pre-commit run --all-files
+uv run pre-commit install
+uv run pre-commit run --all-files
 ```
 
 ## Notebooks
@@ -340,3 +388,23 @@ chore(deps): update uv lock file
 
 Antes de encerrar uma branch, execute testes e lint. A branch só deve ser
 integrada após esses comandos passarem.
+
+## Limitações conhecidas
+
+- o modelo não resolve cold start de usuários ou filmes;
+- gêneros e tags ainda não são utilizados pelo modelo final;
+- a cobertura Top-10 no teste é de aproximadamente 0,88% do catálogo;
+- o baseline aditivo supera o modelo neural nas métricas de ranking do teste;
+- os resultados são offline e não substituem um experimento online;
+- o remote DVC compartilhado ainda precisa ser configurado para acesso externo.
+
+Consulte o [Model Card](MODEL_CARD.md) para a análise completa de limitações,
+fontes de viés, usos inadequados e monitoramento recomendado.
+
+## Referências
+
+- [MovieLens — GroupLens](https://grouplens.org/datasets/movielens/latest/)
+- [DVC](https://dvc.org/doc)
+- [MLflow](https://mlflow.org/docs/latest/)
+- [PyTorch](https://pytorch.org/docs/stable/)
+- [uv](https://docs.astral.sh/uv/)
