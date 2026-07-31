@@ -1,0 +1,4 @@
+# Ignore generated Python and package metadata while DVC hashes dependencies.
+**/*.egg-info/
+__pycache__/
+*.pyc
